@@ -1,0 +1,17 @@
+void set_face_index(model_t *model);
+void set_tx_face_index(model_t *model);
+void reset_sprite_type(model_t *model);
+void expand_txcoords(model_t *model);
+void make_txcoords_positive(model_t *model);
+void resize_txcoords(model_t *model, textures_t *textures);
+void set_objects_size_vt(model_t *model);
+// void set_objects_size_face(model_t *model);
+void join_mdl_objects(model_t *model);
+void make_sprites(model_t *model);
+void set_type_vt(model_t *model);
+void merge_mdl_txcoords(model_t *model);
+void merge_mdl_sprite_vertices(model_t *model);
+void subdivide_faces_into_quads(pl_list_t *pl_list, model_t *model);
+void set_model_size(model_t *model);
+void convert_to_fixed(model_t *model);
+void adjust_txcoords_max_size(model_t *model);

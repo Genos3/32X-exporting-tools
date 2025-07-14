@@ -1,0 +1,1 @@
+void load_model(char file_path[], vx_model_t *model);

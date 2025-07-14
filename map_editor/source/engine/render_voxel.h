@@ -1,0 +1,1 @@
+void draw_voxel_model(vx_model_t *model);

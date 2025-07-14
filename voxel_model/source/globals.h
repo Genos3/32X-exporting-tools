@@ -1,0 +1,1 @@
+extern vx_model_t model;

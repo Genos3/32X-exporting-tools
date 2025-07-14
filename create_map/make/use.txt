@@ -1,0 +1,2 @@
+input a .mdl file exported from load_model.exe
+it requires a .map file and an optional .mtl file

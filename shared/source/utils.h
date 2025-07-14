@@ -1,0 +1,12 @@
+void memset16(void *dst, s16 val, uint count);
+void memset32(void *dst, s32 val, uint count);
+void memcpy16(void *dst, const void *src, uint count);
+void memcpy32(void *dst, const void *src, uint count);
+void set_poly(int face_id, poly_t *poly, model_t *model);
+void make_poly_aabb(aabb_t *aabb, poly_t *poly);
+void make_model_aabb(aabb_t *aabb, model_t *model);
+void print_model_face(int face_id, model_t *model);
+int clamp_i(int x, int min, int max);
+int count_bits(int n);
+int log2_c(int n);
+int test_loop(int *input, int count);

@@ -1,0 +1,13 @@
+void set_cam_pos();
+void set_multiple_tiles(vec3_t *p0, vec3_t *p1, int tile_id, model_t *model);
+void set_aabb(vec3_t *p0, vec3_t *p1, aabb_t *aabb);
+void copy_selected_area();
+void paste_selected_area();
+void move_selected_area();
+void set_camera_to_cursor();
+void look_at(vec3_t *pnt, camera_t *cam);
+void init_memory();
+void free_memory();
+void set_model_list_pnt(model_t *model);
+void set_textures_list_pnt(textures_t *textures);
+void convert_to_fixed(model_t *model);

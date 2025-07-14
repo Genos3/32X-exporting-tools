@@ -1,0 +1,1 @@
+void process_model(vx_model_t *model);

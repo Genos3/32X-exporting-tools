@@ -1,0 +1,11 @@
+void malloc_lnk_ls_grid(lnk_ls_t *list, grid_t *grid);
+void malloc_d_lnk_ls_grid(d_lnk_ls_t *list, grid_t *grid);
+void free_lnk_ls_grid(void *list, grid_t *grid);
+void malloc_mdl_grid(mdl_grid_t *grid);
+void free_mdl_grid(mdl_grid_t *grid);
+void add_grid_lnk_ls_element(int x, int y, int z, int id, lnk_ls_t *grid_list_scn, grid_t *grid);
+void add_grid_d_lnk_ls_element(int x, int y, int z, int id, d_lnk_ls_t *list, grid_t *grid);
+void add_mdl_grid_lnk_ls_element(int tile_pnt, int id, lnk_ls_t *list, mdl_grid_t *grid);
+void remove_grid_element(int x, int y, int z, int id, d_lnk_ls_t *list, grid_t *grid);
+void replace_grid_element(int x, int y, int z, int id0, int id1, d_lnk_ls_t *list, grid_t *grid);
+void remove_grid_lnk_list_element(int ls_pnt, d_lnk_ls_t *list, grid_t *grid);
