@@ -1,7 +1,7 @@
 #include "common.h"
 
 void set_tile(int y, int z, int x);
-void add_face(vec3_t pos, int face_id, int tile_id);
+void add_face(vec3_t pos, int face_id, object_t *ts_object, object_t *scn_object);
 
 void make_model() {
   for (int i = 0; i < map_size.h; i++) {
@@ -12,12 +12,12 @@ void make_model() {
     }
   }
   
-  for (int i = 0; i < tileset.num_materials; i++) {
-    list_push_pnt(&scene.mtl_textures, &tileset.mtl_textures.data[i]);
-  }
+  // for (int i = 0; i < tileset.num_materials; i++) {
+  //   list_push_pnt(&scene.mtl_textures, &tileset.mtl_textures.data[i]);
+  // }
   
-  scene.num_objects = 0;
-  scene.num_materials = tileset.num_materials;
+  scene.num_objects = 1;
+  // scene.num_materials = tileset.num_materials;
   scene.has_textures = tileset.has_textures;
 }
 
@@ -35,60 +35,45 @@ void set_tile(int y, int z, int x) {
     
     if (tile_id < 0) continue;
     
-    for (int j = 0; j < tileset.object_num_faces.data[tile_id]; j++) {
-      int face_id = tileset.object_face_index.data[tile_id] + j;
-      add_face(pos, face_id, tile_id);
+    object_t *ts_object = &tileset.objects.data[tile_id];
+    object_t *scn_object = scene.objects.data;
+    
+    for (int j = 0; j < object->num_faces; j++) {
+      add_face(pos, j, ts_object, scn_object);
     }
   }
 }
 
-void add_face(vec3_t pos, int face_id, int tile_id) {
-  list_push_int(&scene.face_index, scene.faces_size);
-  list_push_int(&scene.tx_face_index, scene.tx_faces_size);
-  
+void add_face(vec3_t pos, int face_id, object_t *ts_object, object_t *scn_object) {
   size3_t half_tile_size;
-  half_tile_size.w = tileset.objects_size.data[tile_id].w / 2;
-  half_tile_size.d = tileset.objects_size.data[tile_id].d / 2;
+  half_tile_size.w = ts_object->size.w / 2;
+  half_tile_size.d = ts_object->size.d / 2;
   
-  for (int i = 0; i < tileset.face_num_vertices.data[face_id]; i++) {
-    int pt_vt = tileset.faces.data[tileset.face_index.data[face_id] + i];
-    
+  face_t *ts_face = &ts_object->face.data[face_id];
+  face_t *scn_face = &scn_object->face.data[face_id];
+  
+  for (int i = 0; i < ts_face->num_vertices; i++) {
+    int pt_vt = ts_face->vt_index[i];
     vec3_t vt;
-    vt.x = pos.x + tileset.vertices.data[pt_vt].x + half_tile_size.w;
-    vt.y = pos.y + tileset.vertices.data[pt_vt].y;
-    vt.z = pos.z + tileset.vertices.data[pt_vt].z + half_tile_size.d;
+    vt.x = pos.x + ts_object->vertices.data[pt_vt].x + half_tile_size.w;
+    vt.y = pos.y + ts_object->vertices.data[pt_vt].y;
+    vt.z = pos.z + ts_object->vertices.data[pt_vt].z + half_tile_size.d;
     
-    list_push_pnt(&scene.vertices, &vt);
-    list_push_int(&scene.faces, scene.num_vertices);
-    
-    scene.num_vertices++;
-    scene.faces_size++;
-    
-    if (!(tileset.face_types.data[face_id] & UNTEXTURED)) {
-      int pt_tx = tileset.tx_faces.data[tileset.tx_face_index.data[face_id] + i];
-      
-      vec2_tx_t tx_vt;
-      tx_vt.u = tileset.txcoords.data[pt_tx].u;
-      tx_vt.v = tileset.txcoords.data[pt_tx].v;
-      list_push_pnt(&scene.txcoords, &tx_vt);
-      list_push_int(&scene.tx_faces, scene.num_txcoords);
-      
-      scene.num_txcoords++;
-      scene.tx_faces_size++;
-    }
+    scn_face->vertices[i] = vt;
   }
   
-  scene.num_faces++;
-  scene.num_tx_faces++;
+  if (ts_face->type & TEXTURED) {
+    for (int i = 0; i < ts_face->num_vertices; i++) {
+      int pt_tx = ts_face->tx_vt_index[i];
+      scn_face->txcoords[i] = ts_object->txcoords.data[pt_tx];
+    }
+    
+    scn_face->has_texture = 1;
+    scn_face->texture_id = ts_face->texture_id;
+  }
   
-  vec3_t normal;
-  normal.x = tileset.normals.data[face_id].x;
-  normal.y = tileset.normals.data[face_id].y;
-  normal.z = tileset.normals.data[face_id].z;
-  
-  list_push_pnt(&scene.normals, &normal);
-  list_push_int(&scene.face_num_vertices, tileset.face_num_vertices.data[face_id]);
-  list_push_int(&scene.face_materials, tileset.face_materials.data[face_id]);
-  list_push_int(&scene.face_types, tileset.face_types.data[face_id]);
-  list_push_int(&scene.sprite_face_index, -1);
+  scn_object->num_faces++;
+  scn_face->num_vertices = ts_face->num_vertices;
+  scn_face->normal = ts_face->normal;
+  scn_face->type = ts_face->type;
 }

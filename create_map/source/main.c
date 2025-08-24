@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
 
 void init() {
   ini.make_fp = 1; // make fixed point
-  ini.fp_size = 12; // fixed point size
+  ini.fp_size = 8; // fixed point size
   ini.scale_vt = 0; // scale vertices
   ini.scale_factor_f = 0.25;
   ini.make_sprites = 1;
@@ -61,18 +61,16 @@ void init() {
 }
 
 void init_model() {
-  tileset.num_vertices = 0;
-  tileset.num_txcoords = 0;
-  tileset.num_faces = 0;
-  tileset.faces_size = 0;
-  tileset.num_tx_faces = 0;
-  tileset.tx_faces_size = 0;
-  tileset.num_objects = 0;
-  tileset.num_materials = 0;
-  tileset.num_sprites = 0;
-  tileset.num_sprite_vertices = 0;
-  tileset.has_textures = 0;
-  tileset.has_grid = 0;
+  model.num_materials = 0;
+  model.num_objects = 0;
+  model.has_textures = 0;
+  model.has_grid = 0;
+  
+  textures.num_textures = 0;
+  textures.num_animations = 0;
+  textures.pal_size = 0;
+  textures.pal_size_tx = 0;
+  textures.texture_data_total_size = 0;
 }
 
 void init_memory() {
@@ -86,8 +84,14 @@ void init_memory() {
 void free_memory() {
   free_list(&rle_map);
   
+  for (int i = 0; i < tilese.num_objects; i++) {
+    free_object_memory(&tilese.objects.data[i]);
+  }
+  
+  free_object_memory(&scene.objects.data[0]);
+  
   if (ini.make_grid) {
-    free_ln_grid_list(&grid_scn_ln);
+    free_ln_grid_list(&scene.objects.data[0].grid_ln);
   }
   
   free_model_memory(&tileset);

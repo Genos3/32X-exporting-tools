@@ -40,14 +40,19 @@ void memcpy32(void *dst, const void *src, uint count) {
   }
 }
 
-// transfer the face from the model to the poly_t struct
+// transfer the face from the object vertex list to the poly_t struct
 
-void set_poly(int face_id, poly_t *poly, model_t *model) {
-  poly->num_vertices = model->face_num_vertices.data[face_id];
+void set_poly_from_obj_vertices(int face_id, poly_t *poly, object_t *object) {
+  poly->num_vertices = object->faces.data[face_id].num_vertices;
   
   for (int i = 0; i < poly->num_vertices; i++) {
-    int pt = model->faces.data[model->face_index.data[face_id] + i];
-    poly->vertices[i] = model->vertices.data[pt];
+    int pt = object->faces.data[face_id].vt_index[i];
+    poly->vertices[i] = object->vertices.data[pt];
+    
+    if (object->faces.data[face_id].has_texture) {
+      int pt_tx = object->faces.data[face_id].tx_vt_index[i];
+      poly->txcoords[i] = object->txcoords.data[pt_tx];
+    }
   }
 }
 
@@ -69,36 +74,48 @@ void make_poly_aabb(aabb_t *aabb, poly_t *poly) {
   }
 }
 
-void make_model_aabb(aabb_t *aabb, model_t *model) {
-  aabb->min.x = model->vertices.data[0].x;
-  aabb->max.x = model->vertices.data[0].x;
-  aabb->min.y = model->vertices.data[0].y;
-  aabb->max.y = model->vertices.data[0].y;
-  aabb->min.z = model->vertices.data[0].z;
-  aabb->max.z = model->vertices.data[0].z;
+void make_poly_tx_aabb(tx_aabb_t *aabb, poly_t *poly) {
+  aabb->min.u = poly->txcoords[0].u;
+  aabb->max.u = poly->txcoords[0].u;
+  aabb->min.v = poly->txcoords[0].v;
+  aabb->max.v = poly->txcoords[0].v;
   
-  for (int i = 1; i < model->num_vertices; i++) {
-    aabb->min.x = min_c(aabb->min.x, model->vertices.data[i].x);
-    aabb->max.x = max_c(aabb->max.x, model->vertices.data[i].x);
-    aabb->min.y = min_c(aabb->min.y, model->vertices.data[i].y);
-    aabb->max.y = max_c(aabb->max.y, model->vertices.data[i].y);
-    aabb->min.z = min_c(aabb->min.z, model->vertices.data[i].z);
-    aabb->max.z = max_c(aabb->max.z, model->vertices.data[i].z);
+  for (int i = 1; i < poly->num_vertices; i++) {
+    aabb->min.u = min_c(aabb->min.u, poly->txcoords[i].u);
+    aabb->max.u = max_c(aabb->max.u, poly->txcoords[i].u);
+    aabb->min.v = min_c(aabb->min.v, poly->txcoords[i].v);
+    aabb->max.v = max_c(aabb->max.v, poly->txcoords[i].v);
   }
 }
 
-void print_model_face(int face_id, model_t *model) {
-  int num_vertices = model->face_num_vertices.data[face_id];
+void make_object_aabb(aabb_t *aabb, object_t *object) {
+  aabb->min.x = object->vertices.data[0].x;
+  aabb->max.x = object->vertices.data[0].x;
+  aabb->min.y = object->vertices.data[0].y;
+  aabb->max.y = object->vertices.data[0].y;
+  aabb->min.z = object->vertices.data[0].z;
+  aabb->max.z = object->vertices.data[0].z;
+  
+  for (int i = 1; i < object->num_vertices; i++) {
+    aabb->min.x = min_c(aabb->min.x, object->vertices.data[i].x);
+    aabb->max.x = max_c(aabb->max.x, object->vertices.data[i].x);
+    aabb->min.y = min_c(aabb->min.y, object->vertices.data[i].y);
+    aabb->max.y = max_c(aabb->max.y, object->vertices.data[i].y);
+    aabb->min.z = min_c(aabb->min.z, object->vertices.data[i].z);
+    aabb->max.z = max_c(aabb->max.z, object->vertices.data[i].z);
+  }
+}
+
+void print_model_face(int face_id, object_t *object) {
+  int num_vertices = object->faces.data[face_id].num_vertices;
   
   for (int i = 0; i < num_vertices; i++) {
     vec5_t p;
-    int pt = model->faces.data[model->face_index.data[face_id] + i];
-    int pt2 = model->tx_faces.data[model->tx_face_index.data[face_id] + i];
-    p.x = model->vertices.data[pt].x;
-    p.y = model->vertices.data[pt].y;
-    p.z = model->vertices.data[pt].z;
-    p.u = model->txcoords.data[pt2].u;
-    p.v = model->txcoords.data[pt2].v;
+    p.x = object->faces.data[face_id].vertices[i].x;
+    p.y = object->faces.data[face_id].vertices[i].y;
+    p.z = object->faces.data[face_id].vertices[i].z;
+    p.u = object->faces.data[face_id].txcoords[i].u;
+    p.v = object->faces.data[face_id].txcoords[i].v;
     
     printf("x %.4f, y %.4f, z %.4f, u %.4f, v %.4f\n", p.x, p.y, p.z, p.u, p.v);
   }
@@ -109,8 +126,8 @@ void print_model_face(int face_id, model_t *model) {
 inline int clamp_i(int x, int min, int max) {
   if (x < min) {
     x = min;
-  } else
-  if (x > max) {
+  }
+  else if (x > max) {
     x = max;
   }
   

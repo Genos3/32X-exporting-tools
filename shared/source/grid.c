@@ -30,7 +30,7 @@ void free_lnk_ls_grid(void *list, grid_t *grid) {
   free_list(list);
 }
 
-void malloc_mdl_grid(mdl_grid_t *grid) {
+void malloc_mdl_grid(obj_grid_t *grid) {
   grid->num_tiles = grid->size_i.w * grid->size_i.h * grid->size_i.d;
   
   grid->pl_pnt = malloc(grid->num_tiles * sizeof(*grid->pl_pnt));
@@ -43,7 +43,7 @@ void malloc_mdl_grid(mdl_grid_t *grid) {
   grid->pl_data.length = 0;
 }
 
-void free_mdl_grid(mdl_grid_t *grid) {
+void free_obj_grid(obj_grid_t *grid) {
   free(grid->pl_pnt);
   free(grid->pl_last);
   free(grid->tile_num_faces);
@@ -85,7 +85,7 @@ void add_grid_d_lnk_ls_element(int x, int y, int z, int id, d_lnk_ls_t *list, gr
   list->length++;
 }
 
-void add_mdl_grid_lnk_ls_element(int tile_pnt, int id, lnk_ls_t *list, mdl_grid_t *grid) {
+void add_mdl_grid_lnk_ls_element(int tile_pnt, int id, lnk_ls_t *list, obj_grid_t *grid) {
   list_malloc_inc(&list->nodes);
   
   if (grid->pl_pnt[tile_pnt] >= 0) {

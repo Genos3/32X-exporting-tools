@@ -19,13 +19,17 @@ typedef unsigned long long u64;
 #define dup8(x) ((x) | ((x) << 8))
 
 // face type
-#define UNTEXTURED 1
+#define TEXTURED 1
 #define BACKFACE 2
 #define BILLBOARD_N 4
 #define BILLBOARD_V 8
 #define SPRITE (4 | 8)
 #define ANIMATED 16
 #define HAS_ALPHA 32
+
+#define ENABLE_VERTEX_GRID 0 // uses a grid when merging the vertices to optimize the search
+// face subdivision method used when removing the t-junctions
+#define T_JUNC_SUBDIV_TYPE 1 // 0 = lut table, 1 = mid vertices added to the main polygon, 2 = t-junction thin triangle
 
 #define STR_SIZE 256
 

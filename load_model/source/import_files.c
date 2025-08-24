@@ -7,7 +7,7 @@ void load_mtl(char *file_path);
 int check_image_repeated(char *token);
 void load_material_types(char *file_path);
 char* fix_path(char *str);
-void load_model(char *file_path);
+void load_model(char *file_path, model_t *model);
 void make_ini_file(char *file_path);
 
 static dlist_char image_list_path;
@@ -15,11 +15,11 @@ dlist_char material_list;
 
 // ini file
 static const char *file_ini_str_i[] = {
-  "make_fp", "fp_size", "swap_yz", "invert_tx_y", "make_cw", "resize_txcoords", "scale_vt", "make_sprites", "export_objects", "join_objects" ,"objects_center_xz_origin", "objects_center_y_origin", "merge_vertices", "dup_tx_colors", "quantize_tx_colors", "quant_tx_pal_size", "quant_dithering", "quantize_palette", "quant_pal_size", "export_tileset", "export_scene", "merge_faces", "limit_dist_face_merge", "face_merge_max_sides", "face_merge_grid_tile_size", "make_grid", "grid_tile_size_bits", "remove_t_junctions", "file_type_export", "model_id", "export_model", "export_textures", "separate_texture_file", "export_texture_data", "create_lightmap", "lightmap_levels", "light_color_r", "light_color_g", "light_color_b", "has_alpha_cr", "alpha_cr_r", "alpha_cr_g", "alpha_cr_b"
+  "make_fp", "fp_size", "swap_yz", "invert_tx_y", "make_cw", "resize_txcoords", "scale_vt", "make_sprites", "export_objects", "join_objects" ,"objects_center_xz_origin", "objects_center_y_origin", "merge_vertices", "dup_tx_colors", "quantize_tx_colors", "quant_tx_pal_size", "quant_dithering", "quantize_palette", "quant_pal_size", "export_tileset", "export_scene", "merge_faces", "limit_dist_face_merge", "face_merge_max_sides", "face_merge_grid_tile_size", "make_grid", "grid_tile_size_bits", "remove_t_junctions", "file_type_export", "model_id", "export_model", "export_textures", "separate_texture_file", "export_texture_data", "create_lightmap", "lightmap_level_bits", "light_color_r", "light_color_g", "light_color_b", "face_angle_bits", "has_alpha_cr", "alpha_cr_r", "alpha_cr_g", "alpha_cr_b"
 };
 
 static int* const vars_ini_pnt_i[] = {
-  &ini.make_fp, &ini.fp_size, &ini.swap_yz, &ini.invert_tx_y, &ini.make_cw, &ini.resize_txcoords, &ini.scale_vt, &ini.make_sprites, &ini.export_objects, &ini.join_objects, &ini.objects_center_xz_origin, &ini.objects_center_y_origin, &ini.merge_vertices, &ini.dup_tx_colors, &ini.quantize_tx_colors, &ini.quant_tx_pal_size, &ini.quant_dithering, &ini.quantize_palette, &ini.quant_pal_size, &ini.export_tileset, &ini.export_scene, &ini.merge_faces, &ini.limit_dist_face_merge, &ini.face_merge_max_sides, &ini.face_merge_grid_tile_size, &ini.make_grid, &ini.grid_tile_size_bits, &ini.remove_t_junctions, &ini.file_type_export, &ini.model_id, &ini.export_model, &ini.export_textures, &ini.separate_texture_file, &ini.export_texture_data, &ini.create_lightmap, &ini.lightmap_levels, &ini.light_color_r, &ini.light_color_g, &ini.light_color_b, &ini.has_alpha_cr, &ini.alpha_cr_r, &ini.alpha_cr_g, &ini.alpha_cr_b
+  &ini.make_fp, &ini.fp_size, &ini.swap_yz, &ini.invert_tx_y, &ini.make_cw, &ini.resize_txcoords, &ini.scale_vt, &ini.make_sprites, &ini.export_objects, &ini.join_objects, &ini.objects_center_xz_origin, &ini.objects_center_y_origin, &ini.merge_vertices, &ini.dup_tx_colors, &ini.quantize_tx_colors, &ini.quant_tx_pal_size, &ini.quant_dithering, &ini.quantize_palette, &ini.quant_pal_size, &ini.export_tileset, &ini.export_scene, &ini.merge_faces, &ini.limit_dist_face_merge, &ini.face_merge_max_sides, &ini.face_merge_grid_tile_size, &ini.make_grid, &ini.grid_tile_size_bits, &ini.remove_t_junctions, &ini.file_type_export, &ini.model_id, &ini.export_model, &ini.export_textures, &ini.separate_texture_file, &ini.export_texture_data, &ini.create_lightmap, &ini.lightmap_level_bits, &ini.light_color_r, &ini.light_color_g, &ini.light_color_b, &ini.face_angle_bits, &ini.has_alpha_cr, &ini.alpha_cr_r, &ini.alpha_cr_g, &ini.alpha_cr_b
 };
 
 static const char *file_ini_str_f[] = {
@@ -39,10 +39,10 @@ static byte seen_ini_str_f[NUM_INI_STR_F];
 void load_files(char *file_path) {
   load_ini(file_path);
   set_ini_values();
-  set_alpha_cr();
+  set_alpha_color(&textures);
   load_mtl(file_path);
   load_material_types(file_path);
-  load_model(file_path);
+  load_model(file_path, &model);
 }
 
 void load_ini(char *file_path) {
@@ -153,15 +153,16 @@ void load_mtl(char *file_path) {
     
     if (!strcmp(token, "newmtl")) { // new material
       token = strtok(NULL, " ");
-      list_push_int(&model.mtl_textures, 0);
-      list_push_int(&model.material_types, 0);
       char *str = strdup(token);
       list_push_pnt(&material_list, &str);
-      list_malloc_inc(&textures.material_colors);
-      list_malloc_inc(&textures.material_colors_tx);
+      list_malloc_inc(&model.materials);
+      model.materials.data[model.num_materials].texture_id = 0;
+      model.materials.data[model.num_materials].type = 0;
+      model.materials.data[model.num_materials].colors = 0;
+      model.materials.data[model.num_materials].colors_tx = 0;
       model.num_materials++;
-    } else
-    if (!strcmp(token, "map_Kd")) { // new texture
+    }
+    else if (!strcmp(token, "map_Kd")) { // new texture
       char path[MAX_PATH];
       strncpy(path, mtl_path, MAX_PATH);
       token = strtok(NULL, "\n");
@@ -170,25 +171,23 @@ void load_mtl(char *file_path) {
       
       char *str = strdup(token);
       list_push_pnt(&image_list_path, &str);
+      list_malloc_inc(&textures.tx_group);
+      
+      textures.lightmap_levels = 1 << ini.lightmap_level_bits;
+      textures.lightmap_level_bits = ini.lightmap_level_bits;
       
       #if EXPORT_AVERAGE_PAL
-        for (int i = 0; i < ini.lightmap_levels; i++) {
+        for (int i = 0; i < textures.lightmap_levels; i++) {
           list_malloc_inc(&textures.cr_palette_idx);
         }
+        
         list_malloc_inc(&textures.cr_palette);
       #endif
-      
-      list_malloc_inc(&textures.texture_sizes);
-      list_malloc_inc(&textures.texture_sizes_padded);
-      list_malloc_inc(&textures.texture_width_bits);
-      list_malloc_inc(&textures.texture_total_sizes);
-      list_malloc_inc(&textures.tx_index);
-      // list_malloc_inc(&textures.texture_data);
       
       //token = fix_path(token);
       PathAppend(path, token);
       
-      process_image(path);
+      process_image(path, &textures);
       
       list_push_int(&textures_has_alpha, tx_has_alpha);
       
@@ -207,12 +206,12 @@ void load_mtl(char *file_path) {
 int check_image_repeated(char *token) {
   for (int i = 0; i < textures.num_textures; i++) {
     if (!strcmp(token, image_list_path.data[i])) {
-      model.mtl_textures.data[model.num_materials - 1] = i;
+      model.materials.data[model.num_materials - 1].texture_id = i;
       return 1;
     }
   }
   
-  model.mtl_textures.data[model.num_materials - 1] = textures.num_textures;
+  model.materials.data[model.num_materials - 1].texture_id = textures.num_textures;
   return 0;
 }
 
@@ -254,12 +253,11 @@ void load_material_types(char file_path[]) {
     
     if (!strcmp(token, "t")) {
       while ((token = strtok(NULL, " "))) {
-        if (model.num_materials) {
-          model.material_types.data[num_material_types] = atoi(token);
-        } else {
-          list_push_int(&model.material_types, atoi(token));
+        if (!model.num_materials) {
+          list_malloc_inc(&model.materials);
         }
         
+        model.materials.data[num_material_types].type = atoi(token);
         num_material_types++;
       }
     }
@@ -283,7 +281,7 @@ char* fix_path(char *str) {
 
 // parse obj file
 
-void load_model(char *file_path) {
+void load_model(char *file_path, model_t *model) {
   FILE *file;
   char str[STR_SIZE];
   // char *path = strdup(file_path);
@@ -302,6 +300,15 @@ void load_model(char *file_path) {
   char *prev_mtl = "";
   int current_material = 0;
   
+  object_t *object = model->objects.data;
+  
+  if (!ini.export_objects) {
+    list_malloc_inc(&model->objects);
+    init_object_struct(object);
+    
+    model->num_objects = 1;
+  }
+  
   while (fgets(str, STR_SIZE, file) != NULL) {
     token = strtok_r(str, "\n", &saveptr);
     token = strtok_r(str, " ", &saveptr);
@@ -315,37 +322,35 @@ void load_model(char *file_path) {
       vt.y = atof(token);
       token = strtok_r(NULL, " ", &saveptr);
       vt.z = atof(token);
-      list_push_pnt(&model.vertices, &vt);
+      list_push_pnt(&object->vertices, &vt);
       
-      if (ini.export_objects && model.num_objects) {
-        model.object_num_vertices.data[model.num_objects - 1]++;
-      }
-      model.num_vertices++;
-    } else
-    if (!strcmp(token, "vt")) { // texture coordinates
+      object->num_vertices++;
+    }
+    else if (!strcmp(token, "vt")) { // texture coordinates
       vec2_tx_t vt;
       token = strtok_r(NULL, " ", &saveptr);
       vt.u = atof(token);
       token = strtok_r(NULL, " ", &saveptr);
       vt.v = atof(token);
-      list_push_pnt(&model.txcoords, &vt);
-      model.num_txcoords++;
-    } else
-    if (!strcmp(token, "usemtl")) { // material
+      list_push_pnt(&object->txcoords, &vt);
+      
+      object->num_txcoords++;
+    }
+    else if (!strcmp(token, "usemtl")) { // material
       token = strtok_r(NULL, " ", &saveptr);
       
       if (!strcmp(token, prev_mtl)) continue;
       
       prev_mtl = strdup(token);
       
-      for (int i = 0; i < model.num_materials; i++) {
+      for (int i = 0; i < model->num_materials; i++) {
         if (!strcmp(token, material_list.data[i])) {
           current_material = i;
           break;
         }
       }
-    } else
-    if (!strcmp(token, "f")) { // faces
+    }
+    else if (!strcmp(token, "f")) { // faces
       int num_vt = 0;
       int face_textured = 0;
       char *saveptr2;
@@ -353,16 +358,16 @@ void load_model(char *file_path) {
       
       while ((token = strtok_r(NULL, " ", &saveptr))) {
         token = strtok_r(token, "/", &saveptr2);
-        list_push_int(&model.faces, atoi(token));
-        model.faces_size++;
+        list_malloc_inc(&object->faces);
+        // decrement the face index
+        object->faces.data[object->num_faces].vt_index[num_vt] = atoi(token) - 1;
         
         if (saveptr2[0] != '/') {
           token = strtok_r(NULL, "/", &saveptr2);
           if (token) {
-            // if (!(model.face_types.data[model.num_faces] & UNTEXTURED)) {
+            // if (!(object->face_types.data[object->num_faces] & UNTEXTURED)) {
             face_textured = 1;
-            list_push_int(&model.tx_faces, atoi(token));
-            model.tx_faces_size++;
+            object->faces.data[object->num_faces].tx_vt_index[num_vt] = atoi(token) - 1;
             // }
           }
         }
@@ -371,47 +376,42 @@ void load_model(char *file_path) {
       }
       
       if (num_vt > 8) {
-        printf("face %d has %d vertices, aborting", model.faces_size, num_vt);
+        printf("face %d has %d vertices, aborting", object->faces.size, num_vt);
         exit(1);
       }
       
-      list_push_int(&faces_textured, face_textured);
-      list_push_int(&model.face_num_vertices, num_vt);
-      list_push_int(&model.face_materials, current_material);
+      object->faces.data[object->num_faces].has_texture = face_textured;
+      object->faces.data[object->num_faces].num_vertices = num_vt;
+      object->faces.data[object->num_faces].material_id = current_material;
+      object->faces.data[object->num_faces].texture_id = model->materials.data[current_material].texture_id;
+      object->faces.data[object->num_faces].type = 0;
+      object->faces.data[object->num_faces].remove = 0;
+      object->num_faces++;
+    }
+    else if (ini.export_objects && !strcmp(token, "o")) { // object
+      list_malloc_inc(&model->objects);
+      object = &model->objects.data[model->num_objects];
+      init_object_struct(object);
       
-      list_malloc_inc(&model.normals);
-      list_malloc_inc(&model.face_index);
-      list_malloc_inc(&model.tx_face_index);
+      object->num_vertices = 0;
+      object->num_txcoords = 0;
+      object->num_faces = 0;
+      object->num_sprites = 0;
       
-      list_push_int(&model.face_types, 0);
-      list_push_int(&model.sprite_face_index, -1);
-      //mtl_textured[current_material] = face_textured;
-      //mtl_idx[current_material] = model.num_faces;
-      
-      if (ini.export_objects && model.num_objects) {
-        model.object_num_faces.data[model.num_objects - 1]++;
-      }
-      if (face_textured) {
-        model.num_tx_faces++;
-      }
-      model.num_faces++;
-    } else
-    if (ini.export_objects && !strcmp(token, "o")) { // objects
-      list_push_int(&model.object_num_faces, 0);
-      list_push_int(&model.object_face_index, model.num_faces);
-      list_push_int(&model.object_num_vertices, 0);
-      list_push_int(&model.object_vt_index, model.num_vertices);
-      model.num_objects++;
+      model->num_objects++;
     }
   }
   
   free(prev_mtl);
+  
   if (ini.file_type_export != OBJ_FILE) {
-    for (int i = 0; i < model.num_materials; i++) {
+    for (int i = 0; i < model->num_materials; i++) {
       free(material_list.data[i]);
     }
+    
     free_list(&material_list);
   }
+  
   fclose(file);
 }
 
@@ -469,10 +469,11 @@ void make_ini_file(char *file_path) {
     "export_textures = 1\n"
     "export_texture_data = 1\n"
     "create_lightmap = 1\n"
-    "lightmap_levels = 8\n"
+    "lightmap_level_bits = 3\n"
     "light_color_r = 31\n"
     "light_color_g = 31\n"
     "light_color_b = 31\n"
+    "face_angle_bits = 3\n"
     "has_alpha_cr = 1  // if one of the textures has an alpha color\n"
     "alpha_cr_r = 168  // 76\n"
     "alpha_cr_g = 230  // 105\n"

@@ -3,7 +3,7 @@
 // ini file
 typedef struct {
   // custom
-  int swap_yz, invert_tx_y, make_cw, export_objects, resize_txcoords, scale_vt, create_lightmap, lightmap_levels, has_alpha_cr, dup_tx_colors, quantize_tx_colors, quant_tx_pal_size, quant_dithering, quantize_palette, quant_pal_size, light_color_r, light_color_g, light_color_b, alpha_cr_r, alpha_cr_g, alpha_cr_b, export_tileset, export_scene;
+  int swap_yz, invert_tx_y, make_cw, export_objects, resize_txcoords, scale_vt, face_angle_bits, create_lightmap, lightmap_level_bits, has_alpha_cr, dup_tx_colors, quantize_tx_colors, quant_tx_pal_size, quant_dithering, quantize_palette, quant_pal_size, light_color_r, light_color_g, light_color_b, alpha_cr_r, alpha_cr_g, alpha_cr_b, export_tileset, export_scene;
   
   float scale_factor_f;
   

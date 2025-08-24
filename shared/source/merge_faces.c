@@ -1,9 +1,9 @@
 #include "common.h"
 
-int check_valid_face(face_t *merged_pl, int face0_id, model_t *model);
-void remove_mid_vertices(face_t *merged_pl);
-void average_plane(int face0_id, int face1_id, face_t *merged_pl, pl_list_t *pl_list, model_t *model);
-void add_merged_face(int face0_id, int face1_id, face_t *merged_pl, d_lnk_ls_t *grid_list, grid_t *grid, pl_list_t *pl_list);
+int check_valid_face(shared_face_t *merged_pl, int face0_id, object_t *object);
+void remove_mid_vertices(shared_face_t *merged_pl);
+void average_plane(int face0_id, int face1_id, shared_face_t *merged_pl, object_t *object);
+void add_merged_face(int face0_id, int face1_id, shared_face_t *merged_pl, d_lnk_ls_t *grid_list, grid_t *grid, object_t *object);
 void merge_grid_faces(int face0_id, int face1_id, d_lnk_ls_t *grid_list, grid_t *grid);
 void merge_aabb(int face0_id, int face1_id);
 
@@ -11,13 +11,12 @@ void merge_aabb(int face0_id, int face1_id);
 
 extern int merged_face, invalid_face, tiled_faces;
 extern int pl_shared_vt_list[2][8];
-extern aabb_t *grid_pl_list_aabb_i;
-extern u8 *removed_faces;
+extern aabb_t *grid_object_aabb_i;
 
 // merges the faces
 
-void merge_shared_faces(int face0_id, int face1_id, int shared_vt0_id, d_lnk_ls_t *grid_list, grid_t *grid, pl_list_t *pl_list, model_t *model) {
-  face_t merged_pl;
+void merge_shared_faces(int face0_id, int face1_id, int shared_vt0_id, d_lnk_ls_t *grid_list, grid_t *grid, object_t *object) {
+  shared_face_t merged_pl;
   vec2_tx_t dt_tx_vt = {};
   merged_pl.num_vertices = 0;
   int dt_pl_index_h = 0;
@@ -28,8 +27,8 @@ void merge_shared_faces(int face0_id, int face1_id, int shared_vt0_id, d_lnk_ls_
   
   // if the textures are tiled get the difference between the texture coordinates in order to add them after and obtain the leftmost and topmost face
   if (tiled_faces) {
-    vec2_tx_t face0_tx_vt = pl_list->txcoords.data[face0_id * 8 + shared_vt0_id];
-    vec2_tx_t face1_tx_vt = pl_list->txcoords.data[face1_id * 8 + pl_shared_vt_list[0][shared_vt0_id]];
+    vec2_tx_t face0_tx_vt = object->faces.data[face0_id].txcoords[shared_vt0_id];
+    vec2_tx_t face1_tx_vt = object->faces.data[face1_id].txcoords[pl_shared_vt_list[0][shared_vt0_id]];
     
     // substract the texture coordinates in the first shared vertex
     dt_tx_vt.u = face1_tx_vt.u - face0_tx_vt.u;
@@ -37,14 +36,16 @@ void merge_shared_faces(int face0_id, int face1_id, int shared_vt0_id, d_lnk_ls_
     
     if (dt_tx_vt.u > 0) {
       dt_pl_index_h = 0;
-    } else if (dt_tx_vt.u < 0) {
+    }
+    else if (dt_tx_vt.u < 0) {
       dt_pl_index_h = 1;
       dt_tx_vt.u = -dt_tx_vt.u;
     }
     
     if (dt_tx_vt.v > 0) {
       dt_pl_index_v = 0;
-    } else if (dt_tx_vt.v < 0) {
+    }
+    if (dt_tx_vt.v < 0) {
       dt_pl_index_v = 1;
       dt_tx_vt.v = -dt_tx_vt.v;
     }
@@ -54,7 +55,7 @@ void merge_shared_faces(int face0_id, int face1_id, int shared_vt0_id, d_lnk_ls_
   while (pl_shared_vt_list[face_index][vt_index] >= 0) {
     vt_index--;
     if (vt_index < 0) {
-      vt_index = pl_list->face_num_vertices.data[face_id] - 1;
+      vt_index = object->faces.data[face_id].num_vertices - 1;
     }
   }
   
@@ -65,8 +66,8 @@ void merge_shared_faces(int face0_id, int face1_id, int shared_vt0_id, d_lnk_ls_
     if (merged_pl.num_vertices == 8) return; // polygon size limit
     
     // add the current vertex to the new face
-    merged_pl.vertices[merged_pl.num_vertices] = pl_list->vertices.data[face_id * 8 + vt_index];
-    merged_pl.txcoords[merged_pl.num_vertices] = pl_list->txcoords.data[face_id * 8 + vt_index];
+    merged_pl.vertices[merged_pl.num_vertices] = object->faces.data[face_id].vertices[vt_index];
+    merged_pl.txcoords[merged_pl.num_vertices] = object->faces.data[face_id].txcoords[vt_index];
     
     if (tiled_faces) {
       if (dt_tx_vt.u && dt_pl_index_h == face_index) {
@@ -93,7 +94,7 @@ void merge_shared_faces(int face0_id, int face1_id, int shared_vt0_id, d_lnk_ls_
       
       // if the next vertex is also shared return
       int vt_idx_t = vt_index + 1;
-      if (vt_idx_t >= pl_list->face_num_vertices.data[face_id]) {
+      if (vt_idx_t >= object->faces.data[face_id].num_vertices) {
         vt_idx_t = 0;
       }
       
@@ -102,30 +103,30 @@ void merge_shared_faces(int face0_id, int face1_id, int shared_vt0_id, d_lnk_ls_
     
     merged_pl.num_vertices++;
     vt_index++;
-    if (vt_index >= pl_list->face_num_vertices.data[face_id]) {
+    if (vt_index >= object->faces.data[face_id].num_vertices) {
       vt_index = 0;
     }
   }
   
   // checks if the final face is convex, if not discard it
-  if (!check_valid_face(&merged_pl, face0_id, model)) return;
+  if (!check_valid_face(&merged_pl, face0_id, object)) return;
   
   remove_mid_vertices(&merged_pl);
   
   if (merged_pl.num_vertices > ini.face_merge_max_sides) return;
   
-  average_plane(face0_id, face1_id, &merged_pl, pl_list, model);
-  add_merged_face(face0_id, face1_id, &merged_pl, grid_list, grid, pl_list);
+  average_plane(face0_id, face1_id, &merged_pl, object);
+  add_merged_face(face0_id, face1_id, &merged_pl, grid_list, grid, object);
   merged_face = 1;
 }
 
 // checks if the final face is convex
 
-int check_valid_face(face_t *merged_pl, int face0_id, model_t *model) {
+int check_valid_face(shared_face_t *merged_pl, int face0_id, object_t *object) {
   int vt_prev = merged_pl->num_vertices - 1;
   int vt_next = 1;
   vec3_t v0, v1, v2, normal;
-  vec3_t normal_0 = model->normals.data[face0_id];
+  vec3_t normal_0 = object->faces.data[face0_id].normal;
   
   for (int i = 0; i < merged_pl->num_vertices; i++) {
     v0.x = merged_pl->vertices[i].x;
@@ -171,7 +172,7 @@ int check_valid_face(face_t *merged_pl, int face0_id, model_t *model) {
 
 // remove any vertices that have ended inside a straight line, happens when merging two rectangles
 
-void remove_mid_vertices(face_t *merged_pl) {
+void remove_mid_vertices(shared_face_t *merged_pl) {
   int final_num_vt = 0;
   for (int i = 0; i < merged_pl->num_vertices; i++) {
     // if (merged_pl_angles[i] < 180 - merge_angle_dist)
@@ -190,9 +191,9 @@ void remove_mid_vertices(face_t *merged_pl) {
 
 // if the normals for the two faces doesn't coincide project the vertices of the final face on an average plane of the other two faces
 
-void average_plane(int face0_id, int face1_id, face_t *merged_pl, pl_list_t *pl_list, model_t *model) {
-  vec3_t normal_0 = model->normals.data[face0_id];
-  vec3_t normal_1 = model->normals.data[face1_id];
+void average_plane(int face0_id, int face1_id, shared_face_t *merged_pl, object_t *object) {
+  vec3_t normal_0 = object->faces.data[face0_id].normal;
+  vec3_t normal_1 = object->faces.data[face1_id].normal;
   
   if (normal_0.x == normal_1.x &&
       normal_0.y == normal_1.y &&
@@ -214,15 +215,15 @@ void average_plane(int face0_id, int face1_id, face_t *merged_pl, pl_list_t *pl_
     normalize(&avg_normal, &avg_normal);
   #else
     vec3_t v0, v1, v2, cross;
-    v0 = pl_list->vertices.data[face0_id * 8];
-    v1 = pl_list->vertices.data[face0_id * 8 + 1];
-    v2 = pl_list->vertices.data[face0_id * 8 + 2];
+    v0 = object->faces.data[face0_id].vertices[0];
+    v1 = object->faces.data[face0_id].vertices[1];
+    v2 = object->faces.data[face0_id].vertices[2];
     calc_normal(&v0, &v1, &v2, &cross);
     float triangle_0_area = calc_length(&cross) / 2;
     
-    v0 = pl_list->vertices.data[face1_id * 8];
-    v1 = pl_list->vertices.data[face1_id * 8 + 1];
-    v2 = pl_list->vertices.data[face1_id * 8 + 2];
+    v0 = object->faces.data[face1_id].vertices[0];
+    v1 = object->faces.data[face1_id].vertices[1];
+    v2 = object->faces.data[face1_id].vertices[2];
     calc_normal(&v0, &v1, &v2, &cross);
     float triangle_1_area = calc_length(&cross) / 2;
     
@@ -264,27 +265,28 @@ void average_plane(int face0_id, int face1_id, face_t *merged_pl, pl_list_t *pl_
     merged_pl->vertices[i].z = poly.vertices[i].z - avg_normal.z * a;
   }
   
-  model->normals.data[face0_id] = avg_normal;
+  object->faces.data[face0_id].normal = avg_normal;
 }
 
 // replaces face_0 with the merged face and mark to remove the second face
 
-void add_merged_face(int face0_id, int face1_id, face_t *merged_pl, d_lnk_ls_t *grid_list, grid_t *grid, pl_list_t *pl_list) {
+void add_merged_face(int face0_id, int face1_id, shared_face_t *merged_pl, d_lnk_ls_t *grid_list, grid_t *grid, object_t *object) {
   for (int i = 0; i < merged_pl->num_vertices; i++) {
-    pl_list->vertices.data[face0_id * 8 + i] = merged_pl->vertices[i];
-    pl_list->txcoords.data[face0_id * 8 + i] = merged_pl->txcoords[i];
+    object->faces.data[face0_id].vertices[i] = merged_pl->vertices[i];
+    object->faces.data[face0_id].txcoords[i] = merged_pl->txcoords[i];
   }
-  pl_list->face_num_vertices.data[face0_id] = merged_pl->num_vertices;
+  
+  object->faces.data[face0_id].num_vertices = merged_pl->num_vertices;
   merge_grid_faces(face0_id, face1_id, grid_list, grid);
   merge_aabb(face0_id, face1_id);
-  removed_faces[face1_id] = 1;
+  object->faces.data[face1_id].remove = 1;
 }
 
 // updates the grid
 
 void merge_grid_faces(int face0_id, int face1_id, d_lnk_ls_t *grid_list, grid_t *grid) {
-  aabb_t aabb_0 = grid_pl_list_aabb_i[face0_id];
-  aabb_t aabb_1 = grid_pl_list_aabb_i[face1_id];
+  aabb_t aabb_0 = grid_object_aabb_i[face0_id];
+  aabb_t aabb_1 = grid_object_aabb_i[face1_id];
   
   for (int i = aabb_1.min.z; i <= aabb_1.max.z; i++) {
     for (int j = aabb_1.min.y; j <= aabb_1.max.y; j++) {
@@ -307,14 +309,14 @@ void merge_grid_faces(int face0_id, int face1_id, d_lnk_ls_t *grid_list, grid_t 
 // merge the two faces aabb
 
 void merge_aabb(int face0_id, int face1_id) {
-  aabb_t aabb_0 = grid_pl_list_aabb_i[face0_id];
-  aabb_t aabb_1 = grid_pl_list_aabb_i[face1_id];
+  aabb_t aabb_0 = grid_object_aabb_i[face0_id];
+  aabb_t aabb_1 = grid_object_aabb_i[face1_id];
   aabb_0.min.x = min_c(aabb_0.min.x, aabb_1.min.x);
   aabb_0.max.x = max_c(aabb_0.max.x, aabb_1.max.x);
   aabb_0.min.y = min_c(aabb_0.min.y, aabb_1.min.y);
   aabb_0.max.y = max_c(aabb_0.max.y, aabb_1.max.y);
   aabb_0.min.z = min_c(aabb_0.min.z, aabb_1.min.z);
   aabb_0.max.z = max_c(aabb_0.max.z, aabb_1.max.z);
-  grid_pl_list_aabb_i[face0_id] = aabb_0;
-  // grid_pl_list_aabb_i[face1_id] = grid_pl_list_aabb_i[model->num_faces - 1];
+  grid_object_aabb_i[face0_id] = aabb_0;
+  // grid_object_aabb_i[face1_id] = grid_object_aabb_i[object->num_faces - 1];
 }

@@ -13,4 +13,3 @@ extern list_u8 faces_textured, textures_has_alpha;
 extern ini_t ini;
 extern model_t model;
 extern textures_t textures;
-extern mdl_grid_ln_t grid_scn_ln;

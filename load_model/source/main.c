@@ -18,7 +18,7 @@ int main(int argc, char *argv[]) {
   }
   
   load_files(file_path);
-  process_data();
+  process_model(&textures, &model);
   make_file(argc, file_path, export_path);
   free_memory();
 }
@@ -69,10 +69,11 @@ void init() {
   ini.separate_texture_file = 0;
   ini.export_texture_data = 1;
   ini.create_lightmap = 1;
-  ini.lightmap_levels = 8;
+  ini.lightmap_level_bits = 3;
   ini.light_color_r = 31;
   ini.light_color_g = 31;
   ini.light_color_b = 31;
+  ini.face_angle_bits = 3;
   ini.has_alpha_cr = 1; // if one of the textures has an alpha color
   ini.alpha_cr_r = 76;
   ini.alpha_cr_g = 105;
@@ -86,22 +87,17 @@ void init() {
 }
 
 void init_model() {
-  model.num_vertices = 0;
-  model.num_txcoords = 0;
-  model.num_faces = 0;
-  model.faces_size = 0;
-  model.num_tx_faces = 0;
-  model.tx_faces_size = 0;
-  model.num_objects = 0;
   model.num_materials = 0;
-  model.num_sprites = 0;
-  model.num_sprite_vertices = 0;
+  model.num_objects = 0;
   model.has_textures = 0;
+  model.has_grid = 0;
   
   textures.num_textures = 0;
   textures.num_animations = 0;
   textures.pal_size = 0;
   textures.pal_size_tx = 0;
+  textures.pal_num_colors = 0;
+  textures.pal_tx_num_colors = 0;
   textures.texture_data_total_size = 0;
 }
 
@@ -114,8 +110,12 @@ void init_memory() {
 }
 
 void free_memory() {
-  if (ini.make_grid) {
-    free_ln_grid_list(&grid_scn_ln);
+  for (int i = 0; i < model.num_objects; i++) {
+    free_object_memory(&model.objects.data[i]);
+    
+    if (ini.make_grid) {
+      free_ln_grid_list(&model.objects.data[i].grid_ln);
+    }
   }
   
   free_model_memory(&model);

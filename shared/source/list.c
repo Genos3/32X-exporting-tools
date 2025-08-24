@@ -125,7 +125,8 @@ inline void list_alloc_mem(list_def *list, int size) {
     list->alloc_mem = max_c(LIST_ALLOC_SIZE, size);
     list->data = malloc(list->alloc_mem * list->type_size);
     g_ls_malloc_count++;
-  } else if (list->size + size > list->alloc_mem) {
+  }
+  else if (list->size + size > list->alloc_mem) {
     do {
       list->alloc_mem <<= 1;
     } while (list->size + size > list->alloc_mem);

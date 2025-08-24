@@ -8,8 +8,7 @@
 #include <string.h>
 
 #include <png.h>
-#include "../../shared/source/defines.h"
-#include "process_image.h"
+#include "common.h"
 
 #if !defined(PNG_SIMPLIFIED_READ_SUPPORTED) || \
     !defined(PNG_SIMPLIFIED_WRITE_SUPPORTED)
@@ -28,10 +27,11 @@ int Save_PNG(const char *filename, unsigned char *buffer, int width, int height,
   image.flags = 0;
   image.colormap_entries = 0;
   
-  if (is_rgba)
+  if (is_rgba) {
     image.format = PNG_FORMAT_RGBA;
-  else
+  } else {
     image.format = PNG_FORMAT_RGB;
+  }
   
   int row_stride = is_rgba ? (width * 4) : (width * 3);
   

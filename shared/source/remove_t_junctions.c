@@ -1,15 +1,15 @@
 #include "common.h"
 
-void t_make_face_grid(d_lnk_ls_t *list, grid_t *grid, pl_list_t *pl_list, model_t *model);
-void check_face_edge(int face_id, poly_t *poly, d_lnk_ls_t *list, grid_t *grid, pl_list_t *pl_list, model_t *model);
+void t_make_face_grid(d_lnk_ls_t *list, grid_t *grid, object_t *object);
+void check_face_edge(int face_id, poly_t *poly, d_lnk_ls_t *list, grid_t *grid, object_t *object);
 void make_line_aabb(vec3_t *vt_0, vec3_t *vt_1, aabb_t *aabb);
-void set_line_grid_aabb(aabb_t *line_aabb, aabb_t *aabb, grid_t *grid, model_t *model);
-void check_edge_face_map(int map_pnt, int edge_id, int face_id, vec3_t *vt_0, vec3_t *vt_1, aabb_t *line_aabb, d_lnk_ls_t *list, grid_t *grid, pl_list_t *pl_list, model_t *model);
+void set_line_grid_aabb(aabb_t *line_aabb, aabb_t *aabb, grid_t *grid, object_t *object);
+void check_edge_face_map(int map_pnt, int edge_id, int face_id, vec3_t *vt_0, vec3_t *vt_1, aabb_t *line_aabb, d_lnk_ls_t *list, grid_t *grid, object_t *object);
 float check_point_line_distance(vec3_t *mid_vt, vec3_t *vt_0, vec3_t *vt_1);
-void calculate_mid_txcoords(int edge_id, int face_id, vec3_t *mid_vt, vec3_t *vt0, vec3_t *vt1, pl_list_t *pl_list);
-void add_extra_t_junction_faces(int face_id, pl_list_t *pl_list, model_t *model);
-void add_extra_vertices_to_face(int face_id, pl_list_t *pl_list, model_t *model);
-void subdiv_face_edge_lut(int face_id, pl_list_t *pl_list, model_t *model);
+void calculate_mid_txcoords(int edge_id, int face_id, vec3_t *mid_vt, vec3_t *vt0, vec3_t *vt1, object_t *object);
+void add_extra_t_junction_faces(int face_id, object_t *object);
+void add_extra_vertices_to_face(int face_id, object_t *object);
+void subdiv_face_edge_lut(int face_id, object_t *object);
 
 // static grid_t face_grid;
 // static d_lnk_ls_t face_grid_list;
@@ -18,7 +18,7 @@ static vec2_tx_t mid_txcoords[8];
 static u8 subdivide_face, subdivide_edge;
 static int num_subdiv_edges;
 static u8 subdiv_edges_bit;
-#if SUBDIV_TYPE == 2
+#if T_JUNC_SUBDIV_TYPE == 2
   static u8 *visited_faces;
 #endif
 static grid_t face_grid;
@@ -32,19 +32,16 @@ typedef struct {
 
 // if a t-junction is found along a face edge it subdivides the face recursively
 
-void remove_mdl_t_junctions(pl_list_t *pl_list, model_t *model) {
-  // pl_list_t pl_list;
+void remove_obj_t_junctions(object_t *object) {
   // set_type_vt(model);
-  #if SUBDIV_TYPE == 2
-    visited_faces = malloc(model->num_faces);
+  #if T_JUNC_SUBDIV_TYPE == 2
+    visited_faces = malloc(object->num_faces);
   #endif
-  // init_pl_list(&pl_list);
-  // set_pl_list(&pl_list, model);
-  // make_vt_grid(&face_grid_list, &face_grid, model);
-  t_make_face_grid(&face_grid_list, &face_grid, pl_list, model);
+  // make_vt_grid(&face_grid_list, &face_grid, object);
+  t_make_face_grid(&face_grid_list, &face_grid, object);
   
-  for (int i = 0; i < pl_list->num_faces; i++) {
-    if (model->face_types.data[i] & SPRITE) continue;
+  for (int i = 0; i < object->num_faces; i++) {
+    if (object->faces.data[i].type & SPRITE) continue;
     
     subdivide_face = 1; // initializes the loop
     
@@ -52,29 +49,28 @@ void remove_mdl_t_junctions(pl_list_t *pl_list, model_t *model) {
       subdivide_face = 0;
       
       poly_t poly;
-      pl_list_set_poly(i, &poly, pl_list);
+      set_poly_from_obj_face(i, &poly, object);
       
-      check_face_edge(i, &poly, &face_grid_list, &face_grid, pl_list, model);
+      check_face_edge(i, &poly, &face_grid_list, &face_grid, object);
       
       if (subdivide_face) {
-        #if !SUBDIV_TYPE
-          subdiv_face_edge_lut(i, pl_list, model); // FIX
-        #elif SUBDIV_TYPE == 1
-          add_extra_vertices_to_face(i, pl_list, model);
+        #if !T_JUNC_SUBDIV_TYPE
+          subdiv_face_edge_lut(i, object); // FIX
+        #elif T_JUNC_SUBDIV_TYPE == 1
+          add_extra_vertices_to_face(i, object);
         #else
-          add_extra_t_junction_faces(i, pl_list, model);
+          add_extra_t_junction_faces(i, object);
         #endif
       }
     }
   }
   
-  // t_set_face_list(&pl_list, model);
+  // t_set_face_list(&object);
   free_lnk_ls_grid(&face_grid_list, &face_grid);
   
-  // free_pl_list(&pl_list);
   // free_lnk_ls_grid(&face_grid_list, &face_grid);
-  // free(model->type_vt);
-  #if SUBDIV_TYPE == 2
+  // free(object->type_vt);
+  #if T_JUNC_SUBDIV_TYPE == 2
     free(visited_faces);
   #endif
   
@@ -84,11 +80,11 @@ void remove_mdl_t_junctions(pl_list_t *pl_list, model_t *model) {
 
 // makes a grid that stores every face of the model on it, used to optimize the face search
 
-void t_make_face_grid(d_lnk_ls_t *list, grid_t *grid, pl_list_t *pl_list, model_t *model) {
+void t_make_face_grid(d_lnk_ls_t *list, grid_t *grid, object_t *object) {
   poly_t poly;
-  grid->size_i.w = ceilf(model->size.w / ini.face_merge_grid_tile_size);
-  grid->size_i.h = ceilf(model->size.h / ini.face_merge_grid_tile_size);
-  grid->size_i.d = ceilf(model->size.d / ini.face_merge_grid_tile_size);
+  grid->size_i.w = ceilf(object->size.w / ini.face_merge_grid_tile_size);
+  grid->size_i.h = ceilf(object->size.h / ini.face_merge_grid_tile_size);
+  grid->size_i.d = ceilf(object->size.d / ini.face_merge_grid_tile_size);
   
   grid->size_i.w = max_c(grid->size_i.w, 1);
   grid->size_i.h = max_c(grid->size_i.h, 1);
@@ -96,15 +92,15 @@ void t_make_face_grid(d_lnk_ls_t *list, grid_t *grid, pl_list_t *pl_list, model_
   
   malloc_d_lnk_ls_grid(list, grid);
   
-  for (int i = 0; i < pl_list->num_faces; i++) {
-    if (model->face_types.data[i] & SPRITE) continue;
-    poly.num_vertices = pl_list->face_num_vertices.data[i];
+  for (int i = 0; i < object->num_faces; i++) {
+    if (object->faces.data[i].type & SPRITE) continue;
+    poly.num_vertices = object->faces.data[i].num_vertices;
     
     if (ini.make_grid) {
       for (int j = 0; j < poly.num_vertices; j++) {
-        poly.vertices[j].x = (pl_list->vertices.data[i * 8 + j].x - model->origin.x) / ini.face_merge_grid_tile_size;
-        poly.vertices[j].y = (pl_list->vertices.data[i * 8 + j].y - model->origin.y) / ini.face_merge_grid_tile_size;
-        poly.vertices[j].z = (pl_list->vertices.data[i * 8 + j].z - model->origin.z) / ini.face_merge_grid_tile_size;
+        poly.vertices[j].x = (object->faces.data[i].vertices[j].x - object->origin.x) / ini.face_merge_grid_tile_size;
+        poly.vertices[j].y = (object->faces.data[i].vertices[j].y - object->origin.y) / ini.face_merge_grid_tile_size;
+        poly.vertices[j].z = (object->faces.data[i].vertices[j].z - object->origin.z) / ini.face_merge_grid_tile_size;
       }
       
       aabb_t aabb;
@@ -114,9 +110,9 @@ void t_make_face_grid(d_lnk_ls_t *list, grid_t *grid, pl_list_t *pl_list, model_
       set_map_list(i, &aabb, list, grid);
     } else {
       for (int j = 0; j < poly.num_vertices; j++) {
-        poly.vertices[j].x = (int)((pl_list->vertices.data[i * 8 + j].x - model->origin.x) / ini.face_merge_grid_tile_size);
-        poly.vertices[j].y = (int)((pl_list->vertices.data[i * 8 + j].y - model->origin.y) / ini.face_merge_grid_tile_size);
-        poly.vertices[j].z = (int)((pl_list->vertices.data[i * 8 + j].z - model->origin.z) / ini.face_merge_grid_tile_size);
+        poly.vertices[j].x = (int)((object->faces.data[i].vertices[j].x - object->origin.x) / ini.face_merge_grid_tile_size);
+        poly.vertices[j].y = (int)((object->faces.data[i].vertices[j].y - object->origin.y) / ini.face_merge_grid_tile_size);
+        poly.vertices[j].z = (int)((object->faces.data[i].vertices[j].z - object->origin.z) / ini.face_merge_grid_tile_size);
       }
       
       aabb_t aabb;
@@ -127,7 +123,7 @@ void t_make_face_grid(d_lnk_ls_t *list, grid_t *grid, pl_list_t *pl_list, model_
   }
 }
 
-void check_face_edge(int face_id, poly_t *poly, d_lnk_ls_t *list, grid_t *grid, pl_list_t *pl_list, model_t *model) {
+void check_face_edge(int face_id, poly_t *poly, d_lnk_ls_t *list, grid_t *grid, object_t *object) {
   subdiv_edges_bit = 0;
   num_subdiv_edges = 0;
   
@@ -142,7 +138,7 @@ void check_face_edge(int face_id, poly_t *poly, d_lnk_ls_t *list, grid_t *grid, 
     
     vec3_t vt_1 = poly->vertices[n];
     make_line_aabb(&vt_0, &vt_1, &line_aabb);
-    set_line_grid_aabb(&line_aabb, &grid_aabb, grid, model);
+    set_line_grid_aabb(&line_aabb, &grid_aabb, grid, object);
     subdivide_edge = 0;
     
     // checks every grid tile the line aabb touches
@@ -151,7 +147,7 @@ void check_face_edge(int face_id, poly_t *poly, d_lnk_ls_t *list, grid_t *grid, 
       for (int k = grid_aabb.min.y; k <= grid_aabb.max.y; k++) {
         for (int l = grid_aabb.min.x; l <= grid_aabb.max.x; l++) {
           int map_pnt = k * grid->size_i.d * grid->size_i.w + j * grid->size_i.w + l;
-          check_edge_face_map(map_pnt, i, face_id, &vt_0, &vt_1, &line_aabb, list, grid, pl_list, model);
+          check_edge_face_map(map_pnt, i, face_id, &vt_0, &vt_1, &line_aabb, list, grid, object);
           if (subdivide_edge) goto exit_loop;
         }
       }
@@ -173,13 +169,13 @@ void make_line_aabb(vec3_t *vt_0, vec3_t *vt_1, aabb_t *aabb) {
 
 // normalize the line aabb to the grid size
 
-void set_line_grid_aabb(aabb_t *line_aabb, aabb_t *aabb, grid_t *grid, model_t *model) {
-  aabb->min.x = (int)((line_aabb->min.x - model->origin.x - ini.merge_vt_dist_f) / ini.face_merge_grid_tile_size);
-  aabb->max.x = (int)((line_aabb->max.x - model->origin.x + ini.merge_vt_dist_f) / ini.face_merge_grid_tile_size);
-  aabb->min.y = (int)((line_aabb->min.y - model->origin.y - ini.merge_vt_dist_f) / ini.face_merge_grid_tile_size);
-  aabb->max.y = (int)((line_aabb->max.y - model->origin.y + ini.merge_vt_dist_f) / ini.face_merge_grid_tile_size);
-  aabb->min.z = (int)((line_aabb->min.z - model->origin.z - ini.merge_vt_dist_f) / ini.face_merge_grid_tile_size);
-  aabb->max.z = (int)((line_aabb->max.z - model->origin.z + ini.merge_vt_dist_f) / ini.face_merge_grid_tile_size);
+void set_line_grid_aabb(aabb_t *line_aabb, aabb_t *aabb, grid_t *grid, object_t *object) {
+  aabb->min.x = (int)((line_aabb->min.x - object->origin.x - ini.merge_vt_dist_f) / ini.face_merge_grid_tile_size);
+  aabb->max.x = (int)((line_aabb->max.x - object->origin.x + ini.merge_vt_dist_f) / ini.face_merge_grid_tile_size);
+  aabb->min.y = (int)((line_aabb->min.y - object->origin.y - ini.merge_vt_dist_f) / ini.face_merge_grid_tile_size);
+  aabb->max.y = (int)((line_aabb->max.y - object->origin.y + ini.merge_vt_dist_f) / ini.face_merge_grid_tile_size);
+  aabb->min.z = (int)((line_aabb->min.z - object->origin.z - ini.merge_vt_dist_f) / ini.face_merge_grid_tile_size);
+  aabb->max.z = (int)((line_aabb->max.z - object->origin.z + ini.merge_vt_dist_f) / ini.face_merge_grid_tile_size);
   
   aabb->min.x = clamp_i(aabb->min.x, 0, grid->size_i.w - 1);
   aabb->max.x = clamp_i(aabb->max.x, 0, grid->size_i.w - 1);
@@ -191,7 +187,7 @@ void set_line_grid_aabb(aabb_t *line_aabb, aabb_t *aabb, grid_t *grid, model_t *
 
 // iterate every face on the grid tile and for each edge and vertex compare them against the edges and vertices of the passed face 
 
-void check_edge_face_map(int map_pnt, int edge_id, int face_id, vec3_t *vt0, vec3_t *vt1, aabb_t *line_aabb, d_lnk_ls_t *list, grid_t *grid, pl_list_t *pl_list, model_t *model) {
+void check_edge_face_map(int map_pnt, int edge_id, int face_id, vec3_t *vt0, vec3_t *vt1, aabb_t *line_aabb, d_lnk_ls_t *list, grid_t *grid, object_t *object) {
   int list_pnt = grid->data_pnt[map_pnt];
   
   while (list_pnt >= 0) {
@@ -199,11 +195,11 @@ void check_edge_face_map(int map_pnt, int edge_id, int face_id, vec3_t *vt0, vec
     list_pnt = list->nodes.data[list_pnt].next;
     
     if (map_face_id == face_id) continue;
-    if (model->face_types.data[map_face_id] & SPRITE) continue;
+    if (object->faces.data[map_face_id].type & SPRITE) continue;
     
-    int map_face_num_vt = pl_list->face_num_vertices.data[map_face_id];
+    int map_face_num_vt = object->faces.data[map_face_id].num_vertices;
     
-    vec3_t edge1_vt0 = pl_list->vertices.data[map_face_id * 8];
+    vec3_t edge1_vt0 = object->faces.data[map_face_id].vertices[0];
     
     // for each edge
     for (int i = 0; i < map_face_num_vt; i++) {
@@ -212,7 +208,7 @@ void check_edge_face_map(int map_pnt, int edge_id, int face_id, vec3_t *vt0, vec
       int n = i + 1;
       if (n == map_face_num_vt) n = 0;
       
-      edge1_vt1 = pl_list->vertices.data[map_face_id * 8 + n];
+      edge1_vt1 = object->faces.data[map_face_id].vertices[n];
       
       edge1_dt_vt.x = edge1_vt1.x - edge1_vt0.x;
       edge1_dt_vt.y = edge1_vt1.y - edge1_vt0.y;
@@ -231,7 +227,7 @@ void check_edge_face_map(int map_pnt, int edge_id, int face_id, vec3_t *vt0, vec
         continue;
       }
       
-      // vec3_t map_vt = model->vertices.data[map_vt_id];
+      // vec3_t map_vt = object->vertices.data[map_vt_id];
       
       vec3_t map_vt = edge1_vt0;
       
@@ -253,7 +249,7 @@ void check_edge_face_map(int map_pnt, int edge_id, int face_id, vec3_t *vt0, vec
         if (check_point_line_distance(&map_vt, vt0, vt1) <= ini.merge_vt_dist_f) {
           subdiv_edges_bit |= 1 << edge_id;
           mid_vertices[num_subdiv_edges] = map_vt;
-          calculate_mid_txcoords(edge_id, face_id, &map_vt, vt0, vt1, pl_list);
+          calculate_mid_txcoords(edge_id, face_id, &map_vt, vt0, vt1, object);
           subdivide_face = 1;
           subdivide_edge = 1;
           num_subdiv_edges++;
@@ -290,7 +286,7 @@ float check_point_line_distance(vec3_t *mid_vt, vec3_t *vt_0, vec3_t *vt_1) {
   return c_len / d_len;
 }
 
-void calculate_mid_txcoords(int edge_id, int face_id, vec3_t *mid_vt, vec3_t *vt_0, vec3_t *vt_1, pl_list_t *pl_list) {
+void calculate_mid_txcoords(int edge_id, int face_id, vec3_t *mid_vt, vec3_t *vt_0, vec3_t *vt_1, object_t *object) {
   vec3_t d0, d1;
   d0.x = vt_1->x - vt_0->x;
   d0.y = vt_1->y - vt_0->y;
@@ -303,10 +299,10 @@ void calculate_mid_txcoords(int edge_id, int face_id, vec3_t *mid_vt, vec3_t *vt
   float d1_len = calc_length(&d1);
   
   int vt1_id = edge_id + 1;
-  if (vt1_id == pl_list->face_num_vertices.data[face_id]) vt1_id = 0;
+  if (vt1_id == object->faces.data[face_id].num_vertices) vt1_id = 0;
   
-  vec2_tx_t vt_0_tx = pl_list->txcoords.data[face_id * 8 + edge_id];
-  vec2_tx_t vt_1_tx = pl_list->txcoords.data[face_id * 8 + vt1_id];
+  vec2_tx_t vt_0_tx = object->faces.data[face_id].txcoords[edge_id];
+  vec2_tx_t vt_1_tx = object->faces.data[face_id].txcoords[vt1_id];
   
   float du = vt_1_tx.u - vt_0_tx.u;
   float dv = vt_1_tx.v - vt_0_tx.v;
@@ -317,7 +313,7 @@ void calculate_mid_txcoords(int edge_id, int face_id, vec3_t *mid_vt, vec3_t *vt
   mid_txcoords[num_subdiv_edges].v = vt_0_tx.v + dv * mid_vt_dist;
 }
 
-/* void subdivide_face(int face_id, int poly_vt[], model_t *model) {
+/* void subdivide_face(int face_id, int poly_vt[], object_t *object) {
   int sub_poly_vt[8];
   int subdiv_edge;
   int sub_poly_num_vt = 0;
@@ -338,8 +334,8 @@ void calculate_mid_txcoords(int edge_id, int face_id, vec3_t *mid_vt, vec3_t *vt
 // creates a thin triangle using the t-junction vertex
 // requires a visited_faces array
 
-void add_extra_t_junction_faces(int face_id, pl_list_t *pl_list, model_t *model) {
-  int num_vertices = pl_list->face_num_vertices.data[face_id];
+void add_extra_t_junction_faces(int face_id, object_t *object) {
+  int num_vertices = object->faces.data[face_id].num_vertices;
   int num_subdiv_vertices = 0;
   
   // for each edge
@@ -350,23 +346,23 @@ void add_extra_t_junction_faces(int face_id, pl_list_t *pl_list, model_t *model)
       if (n == num_vertices) n = 0;
       
       poly_t poly;
-      poly.vertices[0] = pl_list->vertices.data[face_id * 8 + i];
+      poly.vertices[0] = object->faces.data[face_id].vertices[i];
       poly.vertices[1] = mid_vertices[num_subdiv_vertices];
-      poly.vertices[2] = pl_list->vertices.data[face_id * 8 + n];
-      poly.txcoords[0] = pl_list->txcoords.data[face_id * 8 + i];
+      poly.vertices[2] = object->faces.data[face_id].vertices[n];
+      poly.txcoords[0] = object->faces.data[face_id].txcoords[i];
       poly.txcoords[1] = mid_txcoords[num_subdiv_vertices];
-      poly.txcoords[2] = pl_list->txcoords.data[face_id * 8 + n];
+      poly.txcoords[2] = object->faces.data[face_id].txcoords[n];
       poly.num_vertices = 3;
       num_subdiv_vertices++;
       
-      pl_list_add_face(face_id, 1, &poly, pl_list, model);
+      add_obj_face_from_poly(face_id, &poly, object);
     }
   }
 }
 
 // adds the vertices to the main face
 
-void add_extra_vertices_to_face(int face_id, pl_list_t *pl_list, model_t *model) {
+void add_extra_vertices_to_face(int face_id, object_t *object) {
   poly_t poly;
   sub_poly_t sub_poly;
   sub_poly.num_vertices = 0;
@@ -374,9 +370,9 @@ void add_extra_vertices_to_face(int face_id, pl_list_t *pl_list, model_t *model)
   
   // copy the vertices
   
-  for (int i = 0; i < pl_list->face_num_vertices.data[face_id]; i++) {
-    sub_poly.vertices[sub_poly.num_vertices] = pl_list->vertices.data[face_id * 8 + i];
-    sub_poly.txcoords[sub_poly.num_vertices] = pl_list->txcoords.data[face_id * 8 + i];
+  for (int i = 0; i < object->faces.data[face_id].num_vertices; i++) {
+    sub_poly.vertices[sub_poly.num_vertices] = object->faces.data[face_id].vertices[i];
+    sub_poly.txcoords[sub_poly.num_vertices] = object->faces.data[face_id].txcoords[i];
     sub_poly.num_vertices++;
     
     if (subdiv_edges_bit & (1 << i)) {
@@ -396,7 +392,7 @@ void add_extra_vertices_to_face(int face_id, pl_list_t *pl_list, model_t *model)
     }
     
     poly.num_vertices = 8;
-    pl_list_add_face(face_id, 0, &poly, pl_list, model);
+    set_obj_face_from_poly(face_id, &poly, object);
     
     poly.vertices[0] = sub_poly.vertices[0];
     poly.txcoords[0] = sub_poly.txcoords[0];
@@ -407,7 +403,7 @@ void add_extra_vertices_to_face(int face_id, pl_list_t *pl_list, model_t *model)
     }
     
     poly.num_vertices = sub_poly.num_vertices - (7 - 1);
-    pl_list_add_face(face_id, 1, &poly, pl_list, model);
+    add_obj_face_from_poly(face_id, &poly, object);
   } else {
     for (int i = 0; i < sub_poly.num_vertices; i++) {
       poly.vertices[i] = sub_poly.vertices[i];
@@ -415,24 +411,24 @@ void add_extra_vertices_to_face(int face_id, pl_list_t *pl_list, model_t *model)
     }
     
     poly.num_vertices = sub_poly.num_vertices;
-    pl_list_add_face(face_id, 0, &poly, pl_list, model);
+    set_obj_face_from_poly(face_id, &poly, object);
   }
 }
 
 // subdivide the faces using a lut
 // requires quads and triangles only
 
-void subdiv_face_edge_lut(int face_id, pl_list_t *pl_list, model_t *model) {
+void subdiv_face_edge_lut(int face_id, object_t *object) {
   poly_t poly;
   vec3_t sub_poly_vt[8];
   vec2_tx_t sub_poly_tx[8];
-  int sub_poly_num_vertices = pl_list->face_num_vertices.data[face_id];
+  int sub_poly_num_vertices = object->faces.data[face_id].num_vertices;
   
   // copy the vertices
   
   for (int i = 0; i < sub_poly_num_vertices; i++) {
-    sub_poly_vt[i] = pl_list->vertices.data[face_id * 8 + i];
-    sub_poly_tx[i] = pl_list->txcoords.data[face_id * 8 + i];
+    sub_poly_vt[i] = object->faces.data[face_id].vertices[i];
+    sub_poly_tx[i] = object->faces.data[face_id].txcoords[i];
   }
   
   // add the mid vertex to the polygon vertex list
@@ -454,9 +450,9 @@ void subdiv_face_edge_lut(int face_id, pl_list_t *pl_list, model_t *model) {
       }
       
       if (!i) {
-        pl_list_add_face(face_id, 0, &poly, pl_list, model);
+        set_obj_face_from_poly(face_id, &poly, object);
       } else {
-        pl_list_add_face(face_id, 1, &poly, pl_list, model);
+        add_obj_face_from_poly(face_id, &poly, object);
       }
     }
   } else { // quad
@@ -471,9 +467,9 @@ void subdiv_face_edge_lut(int face_id, pl_list_t *pl_list, model_t *model) {
       }
       
       if (!i) {
-        pl_list_add_face(face_id, 0, &poly, pl_list, model);
+        set_obj_face_from_poly(face_id, &poly, object);
       } else {
-        pl_list_add_face(face_id, 1, &poly, pl_list, model);
+        add_obj_face_from_poly(face_id, &poly, object);
       }
     }
   }

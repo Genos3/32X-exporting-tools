@@ -1,163 +1,171 @@
 #include "common.h"
 
-void scale_vertices();
-void scale_sprite_vertices();
-void make_ccw();
-void convert_to_float();
+void scale_vertices(object_t *object);
+void make_ccw(object_t *object);
+void convert_to_float(object_t *object);
 
 void process_data() {
-  // convert_to_float();
-  // set_objects_size_vt(&tileset);
+  // convert_to_float(object);
   
   if (ini.join_objects) {
     join_mdl_objects(&tileset);
   }
   
-  #if 0
-    if (!ini.make_sprites) {
-      reset_sprite_type(&tileset);
-    }
-  #endif
-  
   make_model();
   
   // scale the model
   
-  set_model_size(&scene);
+  set_objects_size(&scene);
   
-  // create the face list
+  object_t *object = scene.object.data
   
-  pl_list_t pl_list;
+  // pass the vertices from the object to the face list
   
-  init_pl_list(&pl_list);
-  set_pl_list_from_model(&pl_list, &scene);
+  set_face_vertices_from_object(object);
+  
+  // merges the faces
   
   if (ini.merge_faces) {
-    merge_mdl_faces(&pl_list, &scene);
+    merge_obj_faces(object);
   }
   
-  #if !SUBDIV_TYPE
-    subdivide_faces_into_quads(&pl_list, &scene);
+  #if !T_JUNC_SUBDIV_TYPE
+    subdivide_faces_into_quads(object);
   #endif
+    
+    // remove the t-junctions
   
   if (ini.remove_t_junctions) {
-    set_model_from_pl_list(&pl_list, &scene);
-    remove_mdl_t_junctions(&pl_list, &scene);
+    remove_obj_t_junctions(object);
   }
   
-  #if SUBDIV_TYPE
-    subdivide_faces_into_quads(&pl_list, &scene);
+  #if T_JUNC_SUBDIV_TYPE
+    subdivide_faces_into_quads(object);
   #endif
   
-  set_model_from_pl_list(&pl_list, &scene);
-  free_pl_list(&pl_list);
+  // make the sprites
+  
+  if (ini.file_type_export != OBJ_FILE && ini.make_sprites) {
+    make_sprites(object);
+  }
+  
+  // move the vertices back to the vertex list
+  
+  #if ENABLE_VERTEX_GRID
+    set_object_vertices_from_face(object);
+    merge_obj_vertices(object);
+  #else
+    set_merged_object_vertices_from_face(object);
+  #endif
+  
+  // creates a grid for the model, used for frustum culling
+  
+  if (ini.make_grid && ini.file_type_export != OBJ_FILE) {
+    make_scn_grid(&scene);
+    
+    // exports an angle value that can be used for the lighting
+    
+    set_face_angles(object);
+  }
+  
+  if (object->has_textures) {
+    if (ini.file_type_export != OBJ_FILE) {
+      // set the coordinates at 0 and allows to export only unsigned numbers
+      // requires unmerged texture coordinates
+      
+      make_txcoords_positive(object);
+      
+      // changes the texture coordinates from normalized values (0 to 1) in floating point to the actual image size the engine requires
+      // requires unmerged texture coordinates
+      
+      if (ini.resize_txcoords && ini.make_fp) {
+        resize_txcoords(object, &textures);
+      }
+    }
+    
+    // merges the texture coordinates
+    
+    set_merged_object_txcoords_from_face(object);
+  }
+  
+  // scale the model
   
   if (ini.scale_vt) {
-    scale_vertices();
+    scale_vertices(object);
   }
   
-  if (ini.file_type_export != OBJ_FILE) {
-    if (ini.make_sprites) {
-      make_sprites(&scene);
-      
-      if (ini.scale_vt) {
-        scale_sprite_vertices();
-      }
-    }
-    
-    if (ini.make_grid) {
-      make_scn_grid(&scene);
-    }
-    
-    if (scene.has_textures) {
-      make_txcoords_positive(&scene);
-      
-      if (ini.make_fp) {
-        resize_txcoords(&scene, &textures);
-      }
-    }
-  }
-  
-  if (ini.merge_vertices) {
-    if (!tileset.has_grid) {
-      merge_mdl_vertices(&scene);
-    }
-    
-    if (scene.has_textures) {
-      merge_mdl_txcoords(&scene);
-    }
-  }
+  // invert the y coordinate on the textures
   
   if (ini.file_type_export == OBJ_FILE) {
-    // invert texture y
-    if (scene.has_textures) {
-      for (int i = 0; i < scene.num_txcoords; i++) {
-        if (scene.txcoords.data[i].v) {
-          scene.txcoords.data[i].v = -scene.txcoords.data[i].v;
+    if (object->has_textures) {
+      for (int i = 0; i < object->num_txcoords; i++) {
+        if (object->txcoords.data[i].v) {
+          object->txcoords.data[i].v = -object->txcoords.data[i].v;
         }
       }
     }
     
-    make_ccw();
-  } else if (ini.make_fp && ini.file_type_export == C_FILE) {
-    convert_to_fixed(&scene);
+    // make the face vertex order counter-clockwise
+    
+    make_ccw(object);
+  }
+  else if (ini.make_fp && ini.file_type_export == C_FILE) {
+    convert_to_fixed(object);
   }
 }
 
-void scale_vertices() {
-  for (int i = 0; i < scene.num_vertices; i++) {
-    scene.vertices.data[i].x *= ini.scale_factor_f;
-    scene.vertices.data[i].y *= ini.scale_factor_f;
-    scene.vertices.data[i].z *= ini.scale_factor_f;
+void scale_vertices(object_t *object) {
+  for (int i = 0; i < object->num_vertices; i++) {
+    object->vertices.data[i].x *= ini.scale_factor_f;
+    object->vertices.data[i].y *= ini.scale_factor_f;
+    object->vertices.data[i].z *= ini.scale_factor_f;
+  }
+  
+  if (object->has_grid) {
+    object->grid_ln.tile_size_i *= ini.scale_factor_f;
   }
 }
 
-void scale_sprite_vertices() {
-  for (int i = 0; i < scene.num_sprite_vertices; i++) {
-    scene.sprite_vertices.data[i].x *= ini.scale_factor_f;
-    scene.sprite_vertices.data[i].y *= ini.scale_factor_f;
-    scene.sprite_vertices.data[i].z *= ini.scale_factor_f;
+void make_ccw(object_t *object) {
+  for (int i = 0; i < object->num_faces; i++) {
+    int t_faces[8], t_tx_faces[8];
+    face_t *face = &object->faces.data[i];
+    
+    for (int j = 0; j < face->num_vertices; j++) {
+      t_faces[j] = face->vt_index[j];
+      
+      if (face->has_texture) {
+        t_tx_faces[j] = face->tx_vt_index[j];
+      }
+    }
+    
+    for (int j = 0; j < face->num_vertices; j++) {
+      face->vt_index[j] = t_faces[face->num_vertices - j - 1];
+      
+      if (face->has_texture) {
+        face->tx_vt_index[j] = t_tx_faces[face->num_vertices - j - 1];
+      }
+    }
   }
 }
 
-void make_ccw() {
-  int faces_pt = 0;
-  for (int i = 0; i < scene.num_faces; i++) {
-    int faces_t[12];
-    for (int j = 0; j < scene.face_num_vertices.data[i]; j++) {
-      faces_t[j] = scene.faces.data[faces_pt + j];
-    }
-    for (int j = 0; j < scene.face_num_vertices.data[i]; j++) {
-      scene.faces.data[faces_pt + j] = faces_t[scene.face_num_vertices.data[i] - j - 1];
-    }
-    faces_pt += scene.face_num_vertices.data[i];
+void convert_to_float(object_t *object) {
+  for (int i = 0; i < object->num_vertices; i++) {
+    object->vertices.data[i].x /= fp_size_i;
+    object->vertices.data[i].y /= fp_size_i;
+    object->vertices.data[i].z /= fp_size_i;
   }
-  faces_pt = 0;
-  for (int i = 0; i < scene.num_tx_faces; i++) {
-    int faces_t[12];
-    for (int j = 0; j < scene.face_num_vertices.data[i]; j++) {
-      faces_t[j] = scene.tx_faces.data[faces_pt + j];
-    }
-    for (int j = 0; j < scene.face_num_vertices.data[i]; j++) {
-      scene.tx_faces.data[faces_pt + j] = faces_t[scene.face_num_vertices.data[i] - j - 1];
-    }
-    faces_pt += scene.face_num_vertices.data[i];
+  
+  for (int i = 0; i < object->num_txcoords; i++) {
+    object->txcoords.data[i].u /= fp_size_i;
+    object->txcoords.data[i].v /= fp_size_i;
   }
-}
-
-void convert_to_float() {
-  for (int i = 0; i < scene.num_vertices; i++) {
-    scene.vertices.data[i].x = scene.vertices.data[i].x / fp_size_i;
-    scene.vertices.data[i].y = scene.vertices.data[i].y / fp_size_i;
-    scene.vertices.data[i].z = scene.vertices.data[i].z / fp_size_i;
-  }
-  for (int i = 0; i < scene.num_faces; i++) {
-    scene.normals.data[i].x = scene.normals.data[i].x / fp_size_i;
-    scene.normals.data[i].y = scene.normals.data[i].y / fp_size_i;
-    scene.normals.data[i].z = scene.normals.data[i].z / fp_size_i;
-  }
-  for (int i = 0; i < scene.num_txcoords; i++) {
-    scene.txcoords.data[i].u = scene.txcoords.data[i].u / fp_size_i;
-    scene.txcoords.data[i].v = scene.txcoords.data[i].v / fp_size_i;
+  
+  for (int i = 0; i < object->num_faces; i++) {
+    face_t *face = &object->faces.data[i];
+    
+    face->normal.x /= fp_size_i;
+    face->normal.y /= fp_size_i;
+    face->normal.z /= fp_size_i;
   }
 }

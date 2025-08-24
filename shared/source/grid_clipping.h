@@ -1,1 +1,1 @@
-void grid_face_clipping(int face_id, aabb_t *aabb, mdl_grid_t *grid, model_t *model);
+void grid_face_clipping(int face_id, aabb_t *aabb, obj_grid_t *grid, object_t *object);

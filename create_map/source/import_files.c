@@ -30,83 +30,11 @@ static float *vars_ini_pnt_f[] = {
   &ini.scale_factor_f, &ini.merge_vt_dist_f, &ini.merge_nm_dist_f, &ini.face_merge_dist_f
 };
 
-// model file
-
-static char *file_mdl_str_array_vec3[] = {
-  "vertices", "normals"
-};
-
-static list_vec3_t *vars_mdl_pnt_array_vec3[] = {
-  &tileset.vertices, &tileset.normals
-};
-
-static char *file_mdl_str_array_vec2[] = {
-  "txcoords"
-};
-
-static list_vec2_tx_t *vars_mdl_pnt_array_vec2[] = {
-  &tileset.txcoords
-};
-
-static char *file_mdl_str_array_size3[] = {
-  "objects_size"
-};
-
-static list_size3_t *vars_mdl_pnt_array_size3[] = {
-  &tileset.objects_size
-};
-
-static char *file_mdl_str_array_tx_size[] = {
-  "texture_sizes", "texture_sizes_padded"
-};
-
-static list_size2i_t *vars_mdl_pnt_array_tx_size[] = {
-  &textures.texture_sizes, &textures.texture_sizes_padded
-};
-
-static char *file_mdl_str_array_hex[] = {
-  "cr_palette_idx", "cr_palette_tx_idx"
-};
-
-static list_u16 *vars_mdl_pnt_array_hex[] = {
-  &textures.cr_palette_idx, &textures.cr_palette_tx_idx
-};
-
-static char *file_mdl_str_array_i[] = {
-  "faces", "tx_faces", "face_index", "tx_face_index", "face_num_vertices", "face_materials", "face_types", "object_face_index", "object_num_faces", "mtl_textures", "material_colors", "material_colors_tx", "texture_width_bits", "texture_total_sizes", "tx_animation_id", "tx_index", "texture_data"
-};
-
-static list_int *vars_mdl_pnt_array_i[] = {
-  &tileset.faces, &tileset.tx_faces, &tileset.face_index, &tileset.tx_face_index, &tileset.face_num_vertices, &tileset.face_materials, &tileset.face_types, &tileset.object_face_index, &tileset.object_num_faces, &tileset.mtl_textures, (list_int*)&textures.material_colors, (list_int*)&textures.material_colors_tx, &textures.texture_width_bits, &textures.texture_total_sizes, &textures.tx_animation_id, &textures.tx_index, (list_int*)&textures.texture_data
-};
-
-static char *file_mdl_str_i[] = {
-  "num_vertices", "num_faces", "num_txcoords", "num_tx_faces", "num_objects", "num_materials", "has_textures", "num_textures", "num_animations", "pal_size", "pal_num_colors", "pal_size_tx", "pal_tx_num_colors", "lightmap_levels", "texture_data_total_size"
-};
-
-static int *vars_mdl_pnt_i[] = {
-  &tileset.num_vertices, &tileset.num_faces, &tileset.num_txcoords, &tileset.num_tx_faces, &tileset.num_objects, &tileset.num_materials, (int*)&tileset.has_textures, &textures.num_textures, &textures.num_animations, &textures.pal_size, &textures.pal_num_colors, &textures.pal_size_tx, &textures.pal_tx_num_colors, &textures.lightmap_levels, &textures.texture_data_total_size
-};
-
 #define NUM_INI_STR_F (sizeof(vars_ini_pnt_f) / sizeof(float *))
 #define NUM_INI_STR_I (sizeof(vars_ini_pnt_i) / sizeof(int *))
-#define NUM_MDL_STR_ARRAY_VEC3 (sizeof(vars_mdl_pnt_array_vec3) / sizeof(list_def *))
-#define NUM_MDL_STR_ARRAY_VEC2 (sizeof(vars_mdl_pnt_array_vec2) / sizeof(list_def *))
-#define NUM_MDL_STR_ARRAY_SIZE3 (sizeof(vars_mdl_pnt_array_size3) / sizeof(list_def *))
-#define NUM_MDL_STR_ARRAY_TX_SIZE (sizeof(vars_mdl_pnt_array_tx_size) / sizeof(list_def *))
-#define NUM_MDL_STR_ARRAY_HEX (sizeof(vars_mdl_pnt_array_hex) / sizeof(list_int *))
-#define NUM_MDL_STR_ARRAY_I (sizeof(vars_mdl_pnt_array_i) / sizeof(list_int *))
-#define NUM_MDL_STR_I (sizeof(vars_mdl_pnt_i) / sizeof(int *))
 
 static byte seen_ini_str_f[NUM_INI_STR_F];
 static byte seen_ini_str_i[NUM_INI_STR_I];
-static byte seen_mdl_str_array_vec3[NUM_MDL_STR_ARRAY_VEC3];
-static byte seen_mdl_str_array_vec2[NUM_MDL_STR_ARRAY_VEC2];
-static byte seen_mdl_str_array_size3[NUM_MDL_STR_ARRAY_SIZE3];
-static byte seen_mdl_str_array_tx_size[NUM_MDL_STR_ARRAY_TX_SIZE];
-static byte seen_mdl_str_array_hex[NUM_MDL_STR_ARRAY_HEX];
-static byte seen_mdl_str_array_i[NUM_MDL_STR_ARRAY_I];
-static byte seen_mdl_str_i[NUM_MDL_STR_I];
 
 void load_files(char *file_path) {
   load_ini(file_path);
@@ -342,11 +270,11 @@ void load_map(char *file_path) {
 
 void load_model(char *file_path) {
   FILE *file;
-  //char str[STR_SIZE];
+  // char str[STR_SIZE];
   
   char *path = strdup(file_path);
-  //PathRemoveFileSpec(path);
-  //PathAppend(path, "model.mdl");
+  // PathRemoveFileSpec(path);
+  // PathAppend(path, "model.mdl");
   PathRenameExtension(path, ".mdl");
   
   file = fopen(path, "r");
@@ -357,12 +285,12 @@ void load_model(char *file_path) {
     exit(1);
   }
   
-  // obtain file size
+  // obtain the file size
   fseek(file, 0, SEEK_END); // seek to end of file
   int size = ftell(file); // get current file pointer
   fseek(file, 0, SEEK_SET); // seek back to beginning of file
   
-  // read file data
+  // read the file data
   char *data = malloc(size + 1);
   size = fread(data, 1, size, file);
   fclose(file);
@@ -370,6 +298,8 @@ void load_model(char *file_path) {
   
   char *token, *saveptr, *saveptr2;
   token = strtok_r(data, ";", &saveptr);
+  
+  int obj_id = -1;
   
   while (token) {
     while (token[0] == '\n' || token[0] == ' ') {
@@ -382,135 +312,343 @@ void load_model(char *file_path) {
       continue;
     }
     
-    token = strtok_r(token, " =", &saveptr2);
+    token = strtok_r(token, " =\n", &saveptr2);
     if (token == NULL) goto next;
     
-    /* for (int i = 0; i < NUM_MDL_STR_ARRAY_F; i++) {
-      if (!seen_mdl_str_array_f[i] && !strcmp(token, file_mdl_str_array_f[i])) {
-        token = strtok_r(NULL, " ,=\n", &saveptr2);
-        while (token) {
-          float value = atof(token);
-          list_push_val_type(vars_mdl_pnt_array_f[i], &value, sizeof(float));
-          //vars_mdl_pnt_array_f[i][j] = (float*)atof(token);
-          token = strtok_r(NULL, " ,\n", &saveptr2);
-        }
-        seen_mdl_str_array_f[i] = 1;
-        goto next;
+    // model
+    
+    if (!strcmp(token, "num_objects")) {
+      token = strtok_r(NULL, " =", &saveptr2);
+      
+      model->num_objects = atoi(token);
+      
+      if (!model->num_objects) {
+        fprintf(file, "no objects found\n");
+        exit(1);
       }
-    } */
-    for (int i = 0; i < NUM_MDL_STR_ARRAY_VEC3; i++) {
-      if (!seen_mdl_str_array_vec3[i] && !strcmp(token, file_mdl_str_array_vec3[i])) {
-        token = strtok_r(NULL, " ,=\n", &saveptr2);
+      
+      list_malloc_size(&model->objects, model->num_objects);
+      
+      for (int i = 0; i < model->num_objects; i++) {
+        object_t *object = &model->objects.data[i];
+        init_object_struct(object);
         
-        while (token) {
-          vec3_t vt;
-          vt.x = atof(token);
-          token = strtok_r(NULL, " ,", &saveptr2);
-          vt.y = atof(token);
-          token = strtok_r(NULL, " ,", &saveptr2);
-          vt.z = atof(token);
-          list_push_pnt((list_def*)vars_mdl_pnt_array_vec3[i], &vt);
-          token = strtok_r(NULL, " ,\n", &saveptr2);
-        }
-        
-        seen_mdl_str_array_vec3[i] = 1;
-        goto next;
+        object->num_sprites = 0;
       }
+      
+      goto next;
     }
     
-    for (int i = 0; i < NUM_MDL_STR_ARRAY_VEC2; i++) {
-      if (!seen_mdl_str_array_vec2[i] && !strcmp(token, file_mdl_str_array_vec2[i])) {
-        token = strtok_r(NULL, " ,=\n", &saveptr2);
-        
-        while (token) {
-          vec2_tx_t vt;
-          vt.u = atof(token);
-          token = strtok_r(NULL, " ,", &saveptr2);
-          vt.v = atof(token);
-          list_push_pnt((list_def*)vars_mdl_pnt_array_vec2[i], &vt);
-          token = strtok_r(NULL, " ,\n", &saveptr2);
-        }
-        
-        seen_mdl_str_array_vec2[i] = 1;
-        goto next;
-      }
+    // objects
+    
+    object_t *object;
+    
+    if (!strcmp(token, "o")) { // object
+      obj_id++;
+      object = &model->objects.data[obj_id];
+      
+      goto next;
     }
     
-    for (int i = 0; i < NUM_MDL_STR_ARRAY_SIZE3; i++) {
-      if (!seen_mdl_str_array_size3[i] && !strcmp(token, file_mdl_str_array_size3[i])) {
-        token = strtok_r(NULL, " ,=\n", &saveptr2);
-        
-        while (token) {
-          size3_t size;
-          size.w = atoi(token);
-          token = strtok_r(NULL, " ,", &saveptr2);
-          size.d = atoi(token);
-          token = strtok_r(NULL, " ,", &saveptr2);
-          size.h = atoi(token);
-          list_push_pnt((list_def*)vars_mdl_pnt_array_size3[i], &size);
-          token = strtok_r(NULL, " ,\n", &saveptr2);
-        }
-        
-        seen_mdl_str_array_size3[i] = 1;
-        goto next;
-      }
+    if (!strcmp(token, "num_vertices")) {
+      token = strtok_r(NULL, " =", &saveptr2);
+      
+      object->num_vertices = atoi(token);
+      
+      list_malloc_size(&object->vertices, object->num_vertices);
+      
+      goto next;
     }
     
-    for (int i = 0; i < NUM_MDL_STR_ARRAY_TX_SIZE; i++) {
-      if (!seen_mdl_str_array_tx_size[i] && !strcmp(token, file_mdl_str_array_tx_size[i])) {
-        token = strtok_r(NULL, " ,=\n", &saveptr2);
-        
-        while (token) {
-          size2i_t size;
-          size.w = atof(token);
-          token = strtok_r(NULL, " ,", &saveptr2);
-          size.h = atof(token);
-          list_push_pnt((list_def*)vars_mdl_pnt_array_tx_size[i], &size);
-          token = strtok_r(NULL, " ,\n", &saveptr2);
-        }
-        
-        seen_mdl_str_array_tx_size[i] = 1;
-        goto next;
-      }
+    if (!strcmp(token, "num_txcoords")) {
+      token = strtok_r(NULL, " =", &saveptr2);
+      
+      object->num_txcoords = atoi(token);
+      
+      list_malloc_size(&object->txcoords, object->num_txcoords);
+      
+      goto next;
     }
     
-    for (int i = 0; i < NUM_MDL_STR_ARRAY_HEX; i++) {
-      if (!seen_mdl_str_array_hex[i] && !strcmp(token, file_mdl_str_array_hex[i])) {
-        token = strtok_r(NULL, " ,=\n", &saveptr2);
-        
-        while (token) {
-          list_push_int((list_def*)vars_mdl_pnt_array_hex[i], strtol(token, 0, 16));
-          //vars_mdl_pnt_array_i[i][j] = atoi(token);
-          token = strtok_r(NULL, " ,\n", &saveptr2);
-        }
-        
-        seen_mdl_str_array_i[i] = 1;
-        goto next;
-      }
+    if (!strcmp(token, "num_faces")) {
+      token = strtok_r(NULL, " =", &saveptr2);
+      
+      object->num_faces = atoi(token);
+      
+      list_malloc_size(&object->faces, object->num_faces);
+      
+      goto next;
     }
     
-    for (int i = 0; i < NUM_MDL_STR_ARRAY_I; i++) {
-      if (!seen_mdl_str_array_i[i] && !strcmp(token, file_mdl_str_array_i[i])) {
-        token = strtok_r(NULL, " ,=\n", &saveptr2);
-        
-        while (token) {
-          list_push_int((list_def*)vars_mdl_pnt_array_i[i], atoi(token));
-          //vars_mdl_pnt_array_i[i][j] = atoi(token);
-          token = strtok_r(NULL, " ,\n", &saveptr2);
-        }
-        
-        seen_mdl_str_array_i[i] = 1;
-        goto next;
-      }
+    if (!strcmp(token, "num_sprites")) {
+      token = strtok_r(NULL, " =", &saveptr2);
+      
+      object->num_sprites = atoi(token);
+      
+      list_malloc_size(&object->sprites, object->num_sprites);
+      
+      goto next;
     }
     
-    for (int i = 0; i < NUM_MDL_STR_I; i++) {
-      if (!seen_mdl_str_i[i] && !strcmp(token, file_mdl_str_i[i])) {
-        token = strtok_r(NULL, " =", &saveptr2);
-        *vars_mdl_pnt_i[i] = atoi(token);
-        seen_mdl_str_i[i] = 1;
-        goto next;
+    if (!strcmp(token, "num_sprite_vertices")) {
+      token = strtok_r(NULL, " =", &saveptr2);
+      
+      object->num_sprite_vertices = atoi(token);
+      
+      list_malloc_size(&object->sprite_vertices, object->num_sprite_vertices);
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "flags")) {
+      token = strtok_r(NULL, " =", &saveptr2);
+      
+      int flags = atoi(token);
+      
+      object->has_grid = flags >> 1;
+      object->has_textures = flags & 1;
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "origin")) {
+      token = strtok_r(NULL, " ,=", &saveptr2);
+      
+      object->origin.x = atof(token);
+      token = strtok_r(NULL, " ,", &saveptr2);
+      object->origin.y = atof(token);
+      token = strtok_r(NULL, " ,;", &saveptr2);
+      object->origin.z = atof(token);
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "size")) {
+      token = strtok_r(NULL, " ,=", &saveptr2);
+      
+      object->size.w = atof(token);
+      token = strtok_r(NULL, " ,", &saveptr2);
+      object->size.d = atof(token);
+      token = strtok_r(NULL, " ,;", &saveptr2);
+      object->size.h = atof(token);
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "vertices")) {
+      token = strtok_r(NULL, " ,=", &saveptr2);
+      
+      for (int i = 0; i < object->num_vertices; i++) {
+        object->vertices.data[i].x = atof(token);
+        token = strtok_r(NULL, " ,", &saveptr2);
+        object->vertices.data[i].y = atof(token);
+        token = strtok_r(NULL, " ,", &saveptr2);
+        object->vertices.data[i].z = atof(token);
       }
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "txcoords")) {
+      token = strtok_r(NULL, " ,=", &saveptr2);
+      
+      for (int i = 0; i < object->num_txcoords; i++) {
+        object->txcoords.data[i].u = atof(token);
+        token = strtok_r(NULL, " ,", &saveptr2);
+        object->txcoords.data[i].v = atof(token);
+      }
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "face_group")) {
+      token = strtok_r(NULL, " ,=", &saveptr2);
+      
+      for (int i = 0; i < object->num_faces; i++) {
+        face_t *face = &object->faces.data[i];
+        
+        face->num_vertices = atoi(token);
+        token = strtok_r(NULL, " ,", &saveptr2);
+        int material = atoi(token);
+        token = strtok_r(NULL, " ,", &saveptr2);
+        face->type = atoi(token);
+        token = strtok_r(NULL, " ,", &saveptr2);
+        face->normal.x = atof(token);
+        token = strtok_r(NULL, " ,", &saveptr2);
+        face->normal.y = atof(token);
+        token = strtok_r(NULL, " ,", &saveptr2);
+        face->normal.z = atof(token);
+        token = strtok_r(NULL, " ,", &saveptr2);
+        face->angle = atoi(token);
+        
+        if (face->type & TEXTURED) {
+          face->texture_id = material;
+          face->has_texture = 1;
+        } else {
+          face->has_texture = 0;
+        }
+        
+        face->remove = 0;
+      }
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "face_data")) {
+      token = strtok_r(NULL, " ,=", &saveptr2);
+      
+      for (int i = 0; i < object->num_faces; i++) {
+        face_t *face = &object->faces.data[i];
+        int num_vertices = face->num_vertices;
+        
+        if (num_vertices == 3) { // triangle
+          for (int j = 0; j < 3; j++) {
+            face->vt_index[j] = atoi(token);
+            token = strtok_r(NULL, " ,", &saveptr2);
+          }
+          
+          if (face->data[i].has_textures) {
+            for (int j = 0; j < 3; j++) {
+              face->tx_vt_index[j] = atoi(token);
+              token = strtok_r(NULL, " ,", &saveptr2);
+            }
+          }
+        }
+        else if (num_vertices == 4) { // quad
+          for (int j = 0; j < 4; j++) {
+            face->vt_index[j] = atoi(token);
+            token = strtok_r(NULL, " ,", &saveptr2);
+          }
+          
+          if (face->data[i].has_textures) {
+            for (int j = 0; j < 4; j++) {
+              face->tx_vt_index[j] = atoi(token);
+              token = strtok_r(NULL, " ,", &saveptr2);
+            }
+          }
+        }
+        else if (num_vertices == 1) { // sprite          
+          sprite_t *sprite = &object->sprites.data[object->num_sprites];
+          
+          for (int j = 0; j < 5; j++) {
+            face->vt_index[j] = atoi(token);
+            token = strtok_r(NULL, " ,", &saveptr2);
+          }
+          
+          for (int j = 0; j < 4; j++) {
+            face->tx_vt_index[j] = atoi(token);
+            token = strtok_r(NULL, " ,", &saveptr2);
+          }
+          
+          object->num_sprites++;
+        }
+      }
+      
+      goto next;
+    }
+    
+    // textures
+    
+    if (!strcmp(token, "num_textures")) {
+      token = strtok_r(NULL, " =", &saveptr2);
+      
+      textures->num_textures = atoi(token);
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "num_animations")) {
+      token = strtok_r(NULL, " =", &saveptr2);
+      
+      textures->num_animations = atoi(token);
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "pal_size")) {
+      token = strtok_r(NULL, " =", &saveptr2);
+      
+      textures->pal_size = atoi(token);
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "pal_size_tx")) {
+      token = strtok_r(NULL, " =", &saveptr2);
+      
+      textures->pal_size_tx = atoi(token);
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "lightmap_level_bits")) {
+      token = strtok_r(NULL, " =", &saveptr2);
+      
+      textures->lightmap_level_bits = atoi(token);
+      
+      textures->lightmap_levels = 1 << textures->lightmap_level_bits;
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "texture_data_total_size")) {
+      token = strtok_r(NULL, " =", &saveptr2);
+      
+      textures->texture_data_total_size = atoi(token);
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "cr_palette_idx")) {
+      token = strtok_r(NULL, " ,=", &saveptr2);
+      
+      for (int i = 0; i < textures->pal_size; i++) {
+        textures->cr_palette_idx = atoi(token);
+        token = strtok_r(NULL, " ,\n", &saveptr2);
+      }
+      
+      goto next;
+    }
+    if (!strcmp(token, "cr_palette_tx_idx")) {
+      token = strtok_r(NULL, " ,=", &saveptr2);
+      
+      for (int i = 0; i < textures->pal_size_tx; i++) {
+        textures->cr_palette_tx_idx = atoi(token);
+        token = strtok_r(NULL, " ,\n", &saveptr2);
+      }
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "tx_group")) {
+      token = strtok_r(NULL, " ,=", &saveptr2);
+      
+      for (int i = 0; i < textures->num_textures; i++) {
+        tx_group_t *tx_group = &textures->tx_group.data[i];
+        
+        textures->size_padded_wh = atoi(token);
+        token = strtok_r(NULL, " ,", &saveptr2);
+        textures->width_bits = atoi(token);
+        token = strtok_r(NULL, " ,", &saveptr2);
+        textures->animation_id = atoi(token);
+        token = strtok_r(NULL, " ,", &saveptr2);
+        textures->tx_index = atoi(token);
+      }
+      
+      goto next;
+    }
+    
+    if (!strcmp(token, "texture_data")) {
+      token = strtok_r(NULL, " ,=", &saveptr2);
+      
+      list_malloc_size(&object->texture_data, object->texture_data_total_size);
+      
+      for (int i = 0; i < textures->texture_data_total_size; i++) {
+        textures->texture_data.data[i] = atoi(token);
+        token = strtok_r(NULL, ",\n", &saveptr2);
+      }
+      
+      goto next;
     }
     
     next:
