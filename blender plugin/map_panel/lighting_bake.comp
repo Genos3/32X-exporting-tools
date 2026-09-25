@@ -1,0 +1,635 @@
+// -----------------------------------------------------------------------------
+// Shared GPU data types
+// -----------------------------------------------------------------------------
+
+struct Triangle {
+    vec3 vertex0;
+    vec3 vertex1;
+    vec3 vertex2;
+    vec3 normal;
+    vec4 albedo;
+};
+
+struct BvhNode {
+    vec4 minimum;
+    vec4 maximum;
+    ivec4 links;
+};
+
+struct BakeVertex {
+    vec3 position;
+    float roughness;
+    vec3 normal;
+    float emission;
+};
+
+struct BakeLight {
+    vec4 position;
+    vec4 color;
+    vec4 parameters;
+};
+
+struct LightGridCell {
+    int offset;
+    int count;
+};
+
+
+// -----------------------------------------------------------------------------
+// Compute shader
+// -----------------------------------------------------------------------------
+
+#define EPSILON 0.0001
+#define INDIRECT_SAMPLES 16 // 32
+#define INDIRECT_BOUNCES 1 // 2
+#define BVH_STACK_SIZE 128
+
+#define BAKE_MODE_GRAYSCALE 1
+
+struct Ray {
+    vec3 origin;
+    vec3 direction;
+};
+
+struct Hit {
+    float distance;
+    int triangleIndex;
+    vec3 position;
+    vec3 normal;
+};
+
+
+// -----------------------------------------------------------------------------
+// Random numbers
+// -----------------------------------------------------------------------------
+
+// A deterministic per-vertex random stream avoids synchronization between
+// shader invocations while keeping the bake reproducible.
+uint hash(uint value) {
+    value ^= value >> 16;
+    value *= 0x7feb352du;
+    value ^= value >> 15;
+    value *= 0x846ca68bu;
+    value ^= value >> 16;
+
+    return value;
+}
+
+float randomFloat(inout uint state) {
+    state = hash(state);
+
+    return float(state) * (1.0 / 4294967296.0);
+}
+
+
+// -----------------------------------------------------------------------------
+// Uniform accessors
+// -----------------------------------------------------------------------------
+
+// Fetch helpers converting 1D texel index to 2D coordinates (x, y)
+vec4 fetch2D(sampler2D tex, int index) {
+    ivec2 coord = ivec2(index % texWidth, index / texWidth);
+    return texelFetch(tex, coord, 0);
+}
+
+Triangle getTriangle(int index) {
+    // 16 floats = 4 RGBA texels per triangle
+    int base = index * 4;
+
+    vec4 t0 = fetch2D(triangleData, base + 0);
+    vec4 t1 = fetch2D(triangleData, base + 1);
+    vec4 t2 = fetch2D(triangleData, base + 2);
+    vec4 t3 = fetch2D(triangleData, base + 3);
+
+    Triangle triangle;
+    triangle.vertex0 = t0.xyz;
+    triangle.vertex1 = t1.xyz;
+    triangle.vertex2 = t2.xyz;
+    triangle.normal = t3.xyz;
+    // Albedo reconstructed from the .w channels of all 4 texels
+    triangle.albedo = vec4(t0.w, t1.w, t2.w, t3.w);
+
+    return triangle;
+}
+
+BvhNode getBvhNode(int index) {
+    int base = index * 3; // 3 texels per node
+
+    BvhNode node;
+    node.minimum = fetch2D(bvhData, base + 0);
+    node.maximum = fetch2D(bvhData, base + 1);
+    node.links = ivec4(fetch2D(bvhData, base + 2));
+
+    return node;
+}
+
+BakeVertex getBakeVertex(int index) {
+    vec4 t0 = fetch2D(bakeVertexData, index * 2 + 0);
+    vec4 t1 = fetch2D(bakeVertexData, index * 2 + 1);
+
+    BakeVertex vertex;
+    vertex.position = t0.xyz;
+    vertex.roughness = t0.w;
+    vertex.normal = t1.xyz;
+    vertex.emission = t1.w;
+
+    return vertex;
+}
+
+BakeLight getLight(int index) {
+    BakeLight light;
+    light.position = fetch2D(lightData, index * 3 + 0);
+    light.color = fetch2D(lightData, index * 3 + 1);
+    light.parameters = fetch2D(lightData, index * 3 + 2);
+
+    return light;
+}
+
+int getLightGridIndex(ivec3 cell) {
+    return
+        cell.x +
+        cell.y * lightGridDimensions.x +
+        cell.z * lightGridDimensions.x * lightGridDimensions.y;
+}
+
+LightGridCell getLightGridCell(ivec3 cell) {
+    int index = getLightGridIndex(cell);
+
+    // lightGrid elements are packed 2 cells per texel (4 floats)
+    int texelIndex = lightGridOffset + (index / 2);
+    vec4 values = fetch2D(lightData, texelIndex);
+
+    LightGridCell result;
+
+    if ((index & 1) == 0) {
+        result.offset = int(values.x);
+        result.count = int(values.y);
+    } else {
+        result.offset = int(values.z);
+        result.count = int(values.w);
+    }
+
+    return result;
+}
+
+int getLightListLight(int offset, int index) {
+    int lightIndex = offset + index;
+
+    // lightList elements are packed 4 indices per texel
+    int texelIndex = lightListOffset + (lightIndex / 4);
+
+    return int(fetch2D(
+        lightData,
+        texelIndex
+    )[lightIndex % 4]);
+}
+
+
+// -----------------------------------------------------------------------------
+// Intersections
+// -----------------------------------------------------------------------------
+
+// Slab intersection for a BVH AABB.
+// maxDistance rejects nodes that cannot contain a closer hit.
+bool intersectAabb(
+    Ray ray,
+    vec3 minimum,
+    vec3 maximum,
+    float maxDistance
+)
+{
+    vec3 inverseDirection = 1.0 / ray.direction;
+
+    vec3 t0 = (minimum - ray.origin) * inverseDirection;
+    vec3 t1 = (maximum - ray.origin) * inverseDirection;
+
+    vec3 nearValues = min(t0, t1);
+    vec3 farValues = max(t0, t1);
+
+    float nearDistance = max(
+        nearValues.x,
+        max(nearValues.y, nearValues.z)
+    );
+
+    float farDistance = min(
+        farValues.x,
+        min(farValues.y, farValues.z)
+    );
+
+    return farDistance >= max(nearDistance, 0.0) &&
+           nearDistance < maxDistance;
+}
+
+// Möller-Trumbore ray/triangle intersection.
+bool intersectTriangle(
+    Ray ray,
+    Triangle triangle,
+    inout Hit hit
+)
+{
+    vec3 vertex0 = triangle.vertex0;
+    vec3 vertex1 = triangle.vertex1;
+    vec3 vertex2 = triangle.vertex2;
+
+    vec3 edge1 = vertex1 - vertex0;
+    vec3 edge2 = vertex2 - vertex0;
+
+    vec3 p = cross(ray.direction, edge2);
+    float determinant = dot(edge1, p);
+
+    if (abs(determinant) < EPSILON)
+        return false;
+
+    float inverseDeterminant = 1.0 / determinant;
+    vec3 offset = ray.origin - vertex0;
+
+    float u = dot(offset, p) * inverseDeterminant;
+
+    if (u < 0.0 || u > 1.0)
+        return false;
+
+    vec3 q = cross(offset, edge1);
+    float v = dot(ray.direction, q) * inverseDeterminant;
+
+    if (v < 0.0 || u + v > 1.0)
+        return false;
+
+    float distance = dot(edge2, q) * inverseDeterminant;
+
+    if (distance <= EPSILON || distance >= hit.distance)
+        return false;
+
+    hit.distance = distance;
+    hit.position = ray.origin + ray.direction * distance;
+    hit.normal = triangle.normal.xyz;
+
+    return true;
+}
+
+
+// -----------------------------------------------------------------------------
+// BVH traversal
+// -----------------------------------------------------------------------------
+
+// The CPU BVH is flattened into one node array.
+// Internal nodes use links.x/y; leaf nodes use links.z/w.
+bool traceRay(
+    Ray ray,
+    inout Hit hit,
+    int bvhRoot
+)
+{
+    int stack[BVH_STACK_SIZE];
+    int stackSize = 0;
+
+    stack[stackSize++] = bvhRoot;
+
+    bool found = false;
+
+    while (stackSize > 0) {
+        int nodeIndex = stack[--stackSize];
+
+        BvhNode node = getBvhNode(nodeIndex);
+
+        if (!intersectAabb(
+            ray,
+            node.minimum.xyz,
+            node.maximum.xyz,
+            hit.distance
+        ))
+            continue;
+
+        int left = node.links.x;
+        int right = node.links.y;
+        int firstTriangle = node.links.z;
+        int triangleCount = node.links.w;
+
+        if (triangleCount > 0) {
+            for (int i = 0; i < triangleCount; ++i) {
+                // Directly calculate the index without the bvhTriangles lookup
+                int triangleIndex = firstTriangle + i;
+
+                if (intersectTriangle(
+                    ray,
+                    getTriangle(triangleIndex),
+                    hit
+                )) {
+                    hit.triangleIndex = triangleIndex;
+                    found = true;
+                }
+            }
+
+            continue;
+        }
+
+        // Prevent stack overflow by capping bounds
+        if (left >= 0 && stackSize < BVH_STACK_SIZE)
+            stack[stackSize++] = left;
+
+        if (right >= 0 && stackSize < BVH_STACK_SIZE)
+            stack[stackSize++] = right;
+    }
+
+    return found;
+}
+
+// Shadow rays terminate at the first intersection instead of searching
+// for the closest hit, making them considerably cheaper than normal rays.
+bool traceShadowRay(
+    Ray ray,
+    float maxDistance,
+    int bvhRoot
+)
+{
+    int stack[BVH_STACK_SIZE];
+    int stackSize = 0;
+
+    stack[stackSize++] = bvhRoot;
+
+    while (stackSize > 0) {
+        int nodeIndex = stack[--stackSize];
+
+        BvhNode node = getBvhNode(nodeIndex);
+
+        if (!intersectAabb(
+            ray,
+            node.minimum.xyz,
+            node.maximum.xyz,
+            maxDistance
+        ))
+            continue;
+
+        int left = node.links.x;
+        int right = node.links.y;
+        int firstTriangle = node.links.z;
+        int triangleCount = node.links.w;
+
+        if (triangleCount > 0) {
+            Hit hit;
+            hit.distance = maxDistance;
+
+            for (int i = 0; i < triangleCount; ++i) {
+                // Directly calculate the index without the bvhTriangles lookup
+                int triangleIndex = firstTriangle + i;
+
+                if (intersectTriangle(
+                    ray,
+                    getTriangle(triangleIndex),
+                    hit
+                ))
+                    return true;
+            }
+
+            continue;
+        }
+
+        // Prevent stack overflow by capping bounds
+        if (left >= 0 && stackSize < BVH_STACK_SIZE)
+            stack[stackSize++] = left;
+
+        if (right >= 0 && stackSize < BVH_STACK_SIZE)
+            stack[stackSize++] = right;
+    }
+
+    return false;
+}
+
+
+// -----------------------------------------------------------------------------
+// Lighting
+// -----------------------------------------------------------------------------
+
+// Point lights are currently the only supported light type, matching Quake.
+// Sun/area/spot lights can be added later without changing the BVH.
+vec3 calculateDirectLighting(
+    vec3 position,
+    vec3 normal,
+    int bvhRoot
+)
+{
+    vec3 result = vec3(0.0);
+    vec3 origin = position + normal * EPSILON;
+
+    ivec3 cell = ivec3(floor(
+        (position - lightGridMinimum) / lightGridSize
+    ));
+
+    cell = clamp(
+        cell,
+        ivec3(0),
+        lightGridDimensions - ivec3(1)
+    );
+
+    LightGridCell gridCell = getLightGridCell(cell);
+
+    for (int i = 0; i < gridCell.count; ++i) {
+        int lightIndex = getLightListLight(gridCell.offset, i);
+
+        BakeLight light = getLight(lightIndex);
+
+        vec3 toLight = light.position.xyz - position;
+        float distanceSquared = dot(toLight, toLight);
+
+        if (distanceSquared <= EPSILON)
+            continue;
+
+        float distance = sqrt(distanceSquared);
+        vec3 direction = toLight / distance;
+
+        float diffuse = dot(normal, direction);
+
+        if (diffuse <= 0.0)
+            continue;
+
+        Ray shadowRay;
+        shadowRay.origin = origin;
+        shadowRay.direction = direction;
+
+        // Only trace shadow ray if the light actually contributes visible energy
+        if (traceShadowRay(shadowRay, distance - EPSILON, bvhRoot))
+            continue;
+
+        result +=
+            light.color.xyz *
+            light.parameters.x *
+            diffuse /
+            distanceSquared;
+    }
+
+    return result;
+}
+
+
+// -----------------------------------------------------------------------------
+// Cosine-weighted sampling
+// -----------------------------------------------------------------------------
+
+void createBasis(
+    vec3 normal,
+    out vec3 tangent,
+    out vec3 bitangent
+)
+{
+    if (abs(normal.z) < 0.999) {
+        tangent = normalize(cross(
+            vec3(0.0, 0.0, 1.0),
+            normal
+        ));
+    } else {
+        tangent = normalize(cross(
+            vec3(0.0, 1.0, 0.0),
+            normal
+        ));
+    }
+
+    bitangent = cross(normal, tangent);
+}
+
+// Cosine-weighted sampling concentrates samples where diffuse contribution
+// is strongest, improving convergence compared with uniform sampling.
+vec3 sampleCosineHemisphere(
+    vec3 normal,
+    inout uint randomState
+)
+{
+    float r1 = randomFloat(randomState);
+    float r2 = randomFloat(randomState);
+
+    float radius = sqrt(r1);
+    float angle = 6.28318530718 * r2;
+
+    float x = cos(angle) * radius;
+    float y = sin(angle) * radius;
+    float z = sqrt(1.0 - r1);
+
+    vec3 tangent;
+    vec3 bitangent;
+
+    createBasis(
+        normal,
+        tangent,
+        bitangent
+    );
+
+    return normalize(
+        tangent * x +
+        bitangent * y +
+        normal * z
+    );
+}
+
+
+// -----------------------------------------------------------------------------
+// Indirect lighting
+// -----------------------------------------------------------------------------
+
+// Spawn INDIRECT_SAMPLES independent paths at the starting vertex.
+// Each path then gets exactly one continuation ray per bounce.
+vec3 calculateIndirectLighting(
+    vec3 position,
+    vec3 normal,
+    inout uint randomState,
+    int bvhRoot
+)
+{
+    vec3 result = vec3(0.0);
+
+    for (int sampleIdx = 0; sampleIdx < INDIRECT_SAMPLES; ++sampleIdx) {
+        vec3 currentPosition = position;
+        vec3 currentNormal = normal;
+        vec3 throughput = vec3(1.0);
+
+        for (int bounce = 0; bounce < INDIRECT_BOUNCES; ++bounce) {
+            vec3 direction = sampleCosineHemisphere(
+                currentNormal,
+                randomState
+            );
+
+            Ray ray;
+            ray.origin =
+                currentPosition +
+                currentNormal * EPSILON;
+            ray.direction = direction;
+
+            Hit hit;
+            hit.distance = 3.402823466e+38;
+            hit.triangleIndex = -1;
+
+            if (!traceRay(ray, hit, bvhRoot))
+                break;
+
+            Triangle triangle = getTriangle(hit.triangleIndex);
+            
+            throughput *= triangle.albedo.xyz;
+
+            // Direct light at the bounced surface is transported back
+            // through the path and multiplied by its diffuse albedo.
+            result +=
+                throughput *
+                calculateDirectLighting(
+                    hit.position,
+                    hit.normal,
+                    bvhRoot
+                );
+
+
+            currentPosition = hit.position;
+            currentNormal = hit.normal;
+        }
+    }
+
+    return result / float(INDIRECT_SAMPLES);
+}
+
+
+// -----------------------------------------------------------------------------
+// Entry point
+// -----------------------------------------------------------------------------
+
+void main() {
+    uint vertexIndex = gl_GlobalInvocationID.x + uint(vertexOffset);
+
+    if (vertexIndex >= uint(vertexCount))
+        return;
+
+    BakeVertex vertex = getBakeVertex(int(vertexIndex));
+
+    // Independent deterministic random sequence for this vertex.
+    uint randomState = hash(vertexIndex + 1u);
+
+    vec3 result =
+        calculateDirectLighting(
+            vertex.position,
+            vertex.normal,
+            bvhRoot
+        ) +
+        calculateIndirectLighting(
+            vertex.position,
+            vertex.normal,
+            randomState,
+            bvhRoot
+        );
+
+    // Keep RGB internally. Grayscale conversion happens only at output.
+    if (bakeMode == BAKE_MODE_GRAYSCALE) {
+        // ITU-R BT.601 luminance conversion.
+        float value =
+            0.299 * result.r +
+            0.587 * result.g +
+            0.114 * result.b;
+
+        result = vec3(value);
+    }
+
+    // Convert the 1D index to a 2D coordinate to match the Python 2D texture
+    ivec2 outCoord = ivec2(
+        int(vertexIndex) % texWidth,
+        int(vertexIndex) / texWidth
+    );
+
+    imageStore(
+        lighting,
+        outCoord,
+        vec4(clamp(result, 0.0, 1.0), 1.0)
+    );
+}
