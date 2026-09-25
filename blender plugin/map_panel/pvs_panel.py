@@ -3,6 +3,8 @@ import re
 
 from mathutils import Vector
 
+from .sector_panel import sector_properties
+
 
 def numeric_suffix(name):
     m = re.search(r'\.(\d+)$', name)
@@ -42,7 +44,7 @@ class OBJECT_OT_pvs_add_selected(bpy.types.Operator):
         if owner.map_props.map_type != 'SECTOR':
             return {'CANCELLED'}
         
-        existing = {item.obj for item in owner.pvs_objects}
+        existing = {item.obj for item in owner.sector_props.pvs_objects}
         
         for obj in context.selected_objects:
             if obj == owner or obj in existing:
@@ -51,7 +53,7 @@ class OBJECT_OT_pvs_add_selected(bpy.types.Operator):
             if obj.map_props.map_type != 'SECTOR':
                 continue
             
-            item = owner.pvs_objects.add()
+            item = owner.sector_props.pvs_objects.add()
             item.obj = obj
         
         return {'FINISHED'}
@@ -64,7 +66,7 @@ class OBJECT_OT_pvs_remove(bpy.types.Operator):
     index: bpy.props.IntProperty()
     
     def execute(self, context):
-        context.object.pvs_objects.remove(self.index)
+        context.object.sector_props.pvs_objects.remove(self.index)
         return {'FINISHED'}
 
 
@@ -73,7 +75,7 @@ class OBJECT_OT_pvs_clear(bpy.types.Operator):
     bl_label = "Delete All"
     
     def execute(self, context):
-        context.object.pvs_objects.clear()
+        context.object.sector_props.pvs_objects.clear()
         return {'FINISHED'}
 
 
@@ -205,7 +207,7 @@ class OBJECT_OT_vsd_export(bpy.types.Operator):
                         
                         ids = []
                         
-                        for item in obj.pvs_objects:
+                        for item in obj.sector_props.pvs_objects:
                             if item.obj:
                                 ids.append(str(
                                     object_ids[item.obj]
@@ -272,11 +274,11 @@ class OBJECT_PT_pvs_panel(bpy.types.Panel):
             if obj.sector_props.has_pvs:
                 layout.operator("object.pvs_add_selected")
                 
-                if obj.pvs_objects:
+                if obj.sector_props.pvs_objects:
                     layout.operator("object.pvs_clear")
                     layout.label(text="Visible Objects")
                 
-                for i, item in enumerate(obj.pvs_objects):
+                for i, item in enumerate(obj.sector_props.pvs_objects):
                     if item.obj:
                         row = layout.row()
                         row.label(text=item.obj.name)
@@ -309,7 +311,6 @@ class OBJECT_PT_pvs_panel(bpy.types.Panel):
 
 
 classes = (
-    pvs_object,
     OBJECT_OT_pvs_add_selected,
     OBJECT_OT_pvs_remove,
     OBJECT_OT_pvs_clear,
@@ -324,14 +325,8 @@ classes = (
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-    
-    bpy.types.Object.pvs_objects = bpy.props.CollectionProperty(
-        type=pvs_object
-    )
 
 
 def unregister():
-    del bpy.types.Object.pvs_objects
-    
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

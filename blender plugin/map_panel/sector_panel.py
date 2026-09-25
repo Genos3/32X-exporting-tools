@@ -837,116 +837,7 @@ def separate_faces(
     return created
 
 
-def assign_bounds_and_priorities(obj, report):
-    sectors = [
-        obj
-        for obj in bpy.data.objects
-        if obj.type == 'MESH' and
-        obj.map_props.map_type == 'SECTOR'
-    ]
-    
-    for sector in sectors:
-        min_corner = Vector((
-            float('inf'),
-            float('inf'),
-            float('inf')
-        ))
-        
-        max_corner = Vector((
-            float('-inf'),
-            float('-inf'),
-            float('-inf')
-        ))
-        
-        for vertex in sector.data.vertices:
-            position = sector.matrix_world @ vertex.co
-            
-            min_corner.x = min(min_corner.x, position.x)
-            min_corner.y = min(min_corner.y, position.y)
-            min_corner.z = min(min_corner.z, position.z)
-            
-            max_corner.x = max(max_corner.x, position.x)
-            max_corner.y = max(max_corner.y, position.y)
-            max_corner.z = max(max_corner.z, position.z)
-        
-        sector.sector_props.min = min_corner
-        sector.sector_props.max = max_corner
-        sector.sector_props.has_aabb = True
-    
-    # Sort sectors from smallest AABB volume to largest.
-    sectors.sort(
-        key=lambda sector: (
-            (sector.sector_props.max[0] - sector.sector_props.min[0]) *
-            (sector.sector_props.max[1] - sector.sector_props.min[1]) *
-            (sector.sector_props.max[2] - sector.sector_props.min[2])
-        )
-    )
-    
-    # Assign the lowest possible priority based only on overlapping AABBs.
-    processed_sectors = []
-    
-    for sector in sectors:
-        priority = 0
-        
-        for other in processed_sectors:
-            if (
-                sector.sector_props.min[0] < other.sector_props.max[0] and
-                sector.sector_props.max[0] > other.sector_props.min[0] and
-                sector.sector_props.min[1] < other.sector_props.max[1] and
-                sector.sector_props.max[1] > other.sector_props.min[1] and
-                sector.sector_props.min[2] < other.sector_props.max[2] and
-                sector.sector_props.max[2] > other.sector_props.min[2]
-            ):
-                priority = max(priority, other.sector_props.priority + 1)
-        
-        sector.sector_props.priority = priority
-        processed_sectors.append(sector)
-    
-    report(
-        {'INFO'},
-        f"Assigned AABB's and priorities to {len(sectors)} sector(s)"
-    )
-
-
-class sector_properties(bpy.types.PropertyGroup):
-    has_pvs: bpy.props.BoolProperty(
-        name="Has PVS",
-        default=False
-    )
-    
-    has_portals: bpy.props.BoolProperty(
-        name="Has Portals",
-        default=False
-    )
-    
-    priority: bpy.props.IntProperty(
-        name="Priority",
-        default=0,
-        min=0
-    )
-    
-    has_aabb: bpy.props.BoolProperty(
-        name="Has AABB",
-        default=False
-    )
-    
-    min: bpy.props.FloatVectorProperty(
-        name="Min AABB",
-        size=3
-    )
-    
-    max: bpy.props.FloatVectorProperty(
-        name="Max AABB",
-        size=3
-    )
-    
-    sector_type: bpy.props.StringProperty(
-        name="Type",
-        default="NONE"
-    )
-
-
-class portal_properties(bpy.types.PropertyGroup):
+class sector_panel_options(bpy.types.PropertyGroup):
     main_obj: bpy.props.PointerProperty(
         name="Main Object",
         type=bpy.types.Object,
@@ -972,12 +863,69 @@ class portal_properties(bpy.types.PropertyGroup):
         default=True,
         description="Separate sectors at liquid boundaries"
     )
-    sector_0: bpy.props.PointerProperty(
+
+
+class pvs_object(bpy.types.PropertyGroup):
+    obj: bpy.props.PointerProperty(
         type=bpy.types.Object
     )
-    sector_1: bpy.props.PointerProperty(
+
+
+class portal_object(bpy.types.PropertyGroup):
+    obj: bpy.props.PointerProperty(
         type=bpy.types.Object
     )
+
+
+class sector_properties(bpy.types.PropertyGroup):
+    has_pvs: bpy.props.BoolProperty(
+        name="Has PVS",
+        default=False
+    )
+    
+    has_portals: bpy.props.BoolProperty(
+        name="Has Portals",
+        default=False
+    )
+    
+    priority: bpy.props.IntProperty(
+        name="Priority",
+        default=0,
+        min=0
+    )
+    
+    has_aabb: bpy.props.BoolProperty(
+        name="Has AABB",
+        default=False
+    )
+    
+    min_aabb: bpy.props.FloatVectorProperty(
+        name="Min AABB",
+        size=3
+    )
+    
+    max_aabb: bpy.props.FloatVectorProperty(
+        name="Max AABB",
+        size=3
+    )
+    
+    sector_type: bpy.props.StringProperty(
+        name="Type",
+        default="NONE"
+    )
+    
+    pvs_objects: bpy.props.CollectionProperty(
+        type=pvs_object
+    )
+    
+    portal_objects: bpy.props.CollectionProperty(
+        type=portal_object
+    )
+
+
+class portal_properties(bpy.types.PropertyGroup):
+    sector_0: bpy.props.PointerProperty(type=bpy.types.Object)
+    sector_1: bpy.props.PointerProperty(type=bpy.types.Object)
 
 
 class FACEGRAB_OT_slice_with_boundaries(bpy.types.Operator):
@@ -990,7 +938,7 @@ class FACEGRAB_OT_slice_with_boundaries(bpy.types.Operator):
         return context.mode == 'OBJECT'
     
     def execute(self, context):
-        props = context.scene.portal_props
+        props = context.scene.sector_panel_options
         main_obj = props.main_obj
         portal_coll = props.portal_collection
         barrier_coll = props.barrier_collection
@@ -1034,7 +982,7 @@ class FACEGRAB_OT_separate_sectors(bpy.types.Operator):
         return context.mode == 'OBJECT'
     
     def execute(self, context):
-        props = context.scene.portal_props
+        props = context.scene.sector_panel_options
         main_obj = props.main_obj
         portal_coll = props.portal_collection
         barrier_coll = props.barrier_collection
@@ -1149,9 +1097,73 @@ class FACEGRAB_OT_assign_sector_bounds_and_priorities(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
-        assign_bounds_and_priorities(
-            obj,
-            self.report
+        sectors = [
+            obj
+            for obj in bpy.data.objects
+            if obj.type == 'MESH' and
+            obj.map_props.map_type == 'SECTOR'
+        ]
+        
+        for sector in sectors:
+            min_corner = Vector((
+                float('inf'),
+                float('inf'),
+                float('inf')
+            ))
+            
+            max_corner = Vector((
+                float('-inf'),
+                float('-inf'),
+                float('-inf')
+            ))
+            
+            for vertex in sector.data.vertices:
+                position = sector.matrix_world @ vertex.co
+                
+                min_corner.x = min(min_corner.x, position.x)
+                min_corner.y = min(min_corner.y, position.y)
+                min_corner.z = min(min_corner.z, position.z)
+                
+                max_corner.x = max(max_corner.x, position.x)
+                max_corner.y = max(max_corner.y, position.y)
+                max_corner.z = max(max_corner.z, position.z)
+            
+            sector.sector_props.min_aabb = min_corner
+            sector.sector_props.max_aabb = max_corner
+            sector.sector_props.has_aabb = True
+        
+        # Sort sectors from smallest AABB volume to largest.
+        sectors.sort(
+            key=lambda sector: (
+                (sector.sector_props.max_aabb[0] - sector.sector_props.min_aabb[0]) *
+                (sector.sector_props.max_aabb[1] - sector.sector_props.min_aabb[1]) *
+                (sector.sector_props.max_aabb[2] - sector.sector_props.min_aabb[2])
+            )
+        )
+        
+        # Assign the lowest possible priority based only on overlapping AABBs.
+        processed_sectors = []
+        
+        for sector in sectors:
+            priority = 0
+            
+            for other in processed_sectors:
+                if (
+                    sector.sector_props.min_aabb[0] < other.sector_props.max_aabb[0] and
+                    sector.sector_props.max_aabb[0] > other.sector_props.min_aabb[0] and
+                    sector.sector_props.min_aabb[1] < other.sector_props.max_aabb[1] and
+                    sector.sector_props.max_aabb[1] > other.sector_props.min_aabb[1] and
+                    sector.sector_props.min_aabb[2] < other.sector_props.max_aabb[2] and
+                    sector.sector_props.max_aabb[2] > other.sector_props.min_aabb[2]
+                ):
+                    priority = max(priority, other.sector_props.priority + 1)
+            
+            sector.sector_props.priority = priority
+            processed_sectors.append(sector)
+        
+        self.report(
+            {'INFO'},
+            f"Assigned AABB's and priorities to {len(sectors)} sector(s)"
         )
         
         return {'FINISHED'}
@@ -1212,8 +1224,8 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
             matching_sectors = []
             
             for sector in sectors:
-                min_corner = Vector(sector.sector_props.min)
-                max_corner = Vector(sector.sector_props.max)
+                min_corner = Vector(sector.sector_props.min_aabb)
+                max_corner = Vector(sector.sector_props.max_aabb)
                 
                 inside = (
                     min_corner.x - epsilon <= center.x <= max_corner.x + epsilon and
@@ -1236,7 +1248,7 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
         
         # Clear the existing PVS
         for sector in sectors:
-            sector.pvs_objects.clear()
+            sector.sector_props.pvs_objects.clear()
         
         for barrier in barriers:
             if not barrier.data.polygons:
@@ -1246,8 +1258,8 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
             matching_sectors = []
             
             for sector in sectors:
-                min_corner = Vector(sector.sector_props.min)
-                max_corner = Vector(sector.sector_props.max)
+                min_corner = Vector(sector.sector_props.min_aabb)
+                max_corner = Vector(sector.sector_props.max_aabb)
                 
                 inside = (
                     min_corner.x - epsilon <= center.x <= max_corner.x + epsilon and
@@ -1268,7 +1280,7 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
                     if target == other:
                         continue
                     
-                    item = target.pvs_objects.add()
+                    item = target.sector_props.pvs_objects.add()
                     item.obj = other
         
         # Assign the sectors with liquids PVS
@@ -1279,8 +1291,8 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
             if not liquid_data["is_semitransparent"]:
                 continue
             
-            liquid_min = Vector(liquid_sector.sector_props.min)
-            liquid_max = Vector(liquid_sector.sector_props.max)
+            liquid_min = Vector(liquid_sector.sector_props.min_aabb)
+            liquid_max = Vector(liquid_sector.sector_props.max_aabb)
             
             liquid_top_center = Vector((
                 (liquid_min.x + liquid_max.x) * 0.5,
@@ -1292,8 +1304,8 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
                 if other_sector == liquid_sector:
                     continue
                 
-                other_min = Vector(other_sector.sector_props.min)
-                other_max = Vector(other_sector.sector_props.max)
+                other_min = Vector(other_sector.sector_props.min_aabb)
+                other_max = Vector(other_sector.sector_props.max_aabb)
                 
                 liquid_touches = False
                 
@@ -1324,16 +1336,16 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
                     continue
                 
                 # Don't add a duplicate PVS.
-                if not any(item.obj == other_sector for item in liquid_sector.pvs_objects):
-                    item = liquid_sector.pvs_objects.add()
+                if not any(item.obj == other_sector for item in liquid_sector.sector_props.pvs_objects):
+                    item = liquid_sector.sector_props.pvs_objects.add()
                     item.obj = other_sector
                 
-                if not any(item.obj == liquid_sector for item in other_sector.pvs_objects):
-                    item = other_sector.pvs_objects.add()
+                if not any(item.obj == liquid_sector for item in other_sector.sector_props.pvs_objects):
+                    item = other_sector.sector_props.pvs_objects.add()
                     item.obj = liquid_sector
         
-        sector.sector_props.has_pvs = bool(sector.pvs_objects)
-        sector.sector_props.has_portals = bool(sector.portal_objects)
+        sector.sector_props.has_pvs = bool(sector.sector_props.pvs_objects)
+        sector.sector_props.has_portals = bool(sector.sector_props.portal_objects)
         
         self.report({'INFO'}, "Assigned portals and pvs")
         return {'FINISHED'}
@@ -1376,8 +1388,8 @@ class FACEGRAB_OT_assign_entities_to_sectors(bpy.types.Operator):
             matching_sectors = []
             
             for sector in sectors:
-                min_corner = Vector(sector.sector_props.min)
-                max_corner = Vector(sector.sector_props.max)
+                min_corner = Vector(sector.sector_props.min_aabb)
+                max_corner = Vector(sector.sector_props.max_aabb)
                 
                 inside = (
                     min_corner.x - epsilon <= center.x <= max_corner.x + epsilon and
@@ -1408,7 +1420,7 @@ class FACEGRAB_PT_sector_panel(bpy.types.Panel):
     
     def draw(self, context):
         layout = self.layout
-        props = context.object.portal_props
+        props = context.scene.sector_panel_options
         
         layout.prop(props, "main_obj")
         layout.prop(props, "portal_collection")
@@ -1419,14 +1431,17 @@ class FACEGRAB_PT_sector_panel(bpy.types.Panel):
         layout.operator("facegrab.add_barrier", text="Add Barrier")
         layout.operator("facegrab.slice_with_boundaries", text="Slice With Sector Boundaries")
         layout.operator("facegrab.separate_sectors", text="Separate Faces Into Sectors")
-        layout.operator("object.assign_sector_bounds_and_priorities")
+        layout.operator("facegrab.assign_sector_bounds_and_priorities")
         layout.operator("facegrab.assign_portals_and_pvs", text="Assign Portals and PVS")
         layout.operator("facegrab.assign_entities_to_sectors", text="Assign Entities to Sectors")
 
 
 classes = (
+    pvs_object,
+    portal_object,
     sector_properties,
     portal_properties,
+    sector_panel_options,
     FACEGRAB_OT_slice_with_boundaries,
     FACEGRAB_OT_separate_sectors,
     FACEGRAB_OT_add_portal,
@@ -1449,11 +1464,16 @@ def register():
     bpy.types.Object.portal_props = bpy.props.PointerProperty(
         type=portal_properties
     )
+    
+    bpy.types.Scene.sector_panel_options = bpy.props.PointerProperty(
+        type=sector_panel_options
+    )
 
 
 def unregister():
     del bpy.types.Object.sector_props
     del bpy.types.Object.portal_props
+    del bpy.types.Scene.sector_panel_options
     
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
