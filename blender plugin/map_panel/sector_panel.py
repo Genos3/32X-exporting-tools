@@ -6,8 +6,8 @@ from mathutils.geometry import tessellate_polygon
 from .map_panel import get_portal_material, get_barrier_material
 from .entity_panel import get_liquid_types
 
-DEBUG = False
-DEBUG_CUT = False
+DEBUG_SEPARATE_EDGES = False
+DEBUG_SLICE_VERTICES = False
 
 
 def get_world_aabb(obj):
@@ -64,27 +64,6 @@ def edge_plane_intersect(v1, v2, plane_co, plane_no, epsilon=1e-4):
     return v1.lerp(v2, t)
 
 
-def point_on_plane(point, plane_point, plane_normal):
-    return abs((point - plane_point).dot(plane_normal)) < 0.0001
-
-
-def edge_lies_on_boundary(edge, plane_point, plane_normal, boundary_verts):
-    v1 = edge.verts[0].co
-    v2 = edge.verts[1].co
-    
-    if not point_on_plane(v1, plane_point, plane_normal):
-        return False
-    if not point_on_plane(v2, plane_point, plane_normal):
-        return False
-    
-    if not point_in_polygon(v1, boundary_verts, plane_normal):
-        return False
-    if not point_in_polygon(v2, boundary_verts, plane_normal):
-        return False
-    
-    return True
-
-
 def is_liquid_face(face, main_obj):
     material = main_obj.data.materials[face.material_index]
     return material and material.name.startswith("*")
@@ -129,54 +108,6 @@ def collect_boundary_data(main_obj, portal_coll, barrier_coll, selected_only):
     return boundaries_data
 
 
-def test_select_affected_faces(main_obj, portal_coll, barrier_coll, selected_only, report):
-    # Switch to Edit Mode to work with face selection
-    bpy.ops.object.mode_set(mode='EDIT')
-    
-    # Get active BMesh from the mesh in Edit Mode
-    bm = bmesh.from_edit_mesh(main_obj.data)
-    
-    # Deselect everything first
-    bpy.ops.mesh.select_all(action='DESELECT')
-    
-    boundaries_data = collect_boundary_data(
-        main_obj,
-        portal_coll,
-        barrier_coll,
-        selected_only
-    )
-    
-    if not boundaries_data:
-        report({'ERROR'}, "No portals or barriers found to process")
-        return
-    
-    total_faces_selected = 0
-    
-    for local_point, local_normal, local_boundary_verts in boundaries_data:
-        bm.faces.ensure_lookup_table()
-        bm.edges.ensure_lookup_table()
-        
-        for face in bm.faces:
-            for edge in face.edges:
-                v1 = edge.verts[0].co
-                v2 = edge.verts[1].co
-                
-                isect = edge_plane_intersect(v1, v2, local_point, local_normal)
-                if isect is None:
-                    continue
-                
-                if point_in_polygon(isect, local_boundary_verts, local_normal):
-                    # Select the face in the viewport
-                    face.select = True
-                    total_faces_selected += 1
-                    break
-    
-    # Update viewport selection
-    bmesh.update_edit_mesh(main_obj.data)
-    
-    report({'INFO'}, f"Selected {total_faces_selected} face(s) across {len(boundaries_data)} portal(s)")
-
-
 def split_edge_at_point(edge, point):
     v0 = edge.verts[0]
     v1 = edge.verts[1]
@@ -185,23 +116,19 @@ def split_edge_at_point(edge, point):
     length_squared = direction.length_squared
     
     if length_squared == 0.0:
-        return v0
+        return v0, None
     
     factor = (point - v0.co).dot(direction) / length_squared
     
     if factor <= 0.0:
-        return v0
+        return v0, None
     
     if factor >= 1.0:
-        return v1
+        return v1, None
     
-    new_edge, new_vertex = bmesh.utils.edge_split(
-        edge,
-        v0,
-        factor
-    )
+    new_edge, new_vertex = bmesh.utils.edge_split(edge, v0, factor)
     
-    return new_vertex
+    return new_vertex, new_edge
 
 
 def is_face_coplanar(face, plane_co, plane_normal, epsilon=1e-4):
@@ -345,17 +272,21 @@ def clip_mesh_with_boundary(
         edge_intersections.append((edge, intersection))
     
     intersection_vertices = set()
+    boundary_edges = set()
     
     # Split the crossed edges at their exact intersection points.
     for edge, intersection in edge_intersections:
-        vertex = split_edge_at_point(edge, intersection)
+        vertex, new_edge = split_edge_at_point(edge, intersection)
         intersection_vertices.add(vertex)
+        
+        if new_edge is not None:
+            boundary_edges.add(new_edge)
     
     bm.verts.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
     bm.faces.ensure_lookup_table()
     
-    if DEBUG_CUT:
+    if DEBUG_SLICE_VERTICES:
         for vertex in intersection_vertices:
             vertex.select = True
         
@@ -364,7 +295,6 @@ def clip_mesh_with_boundary(
         
         return set(), 0
     
-    boundary_edges = set()
     affected_faces = set()
     
     # Connect the boundary intersections across each affected face.
@@ -467,10 +397,16 @@ def clip_mesh_with_boundary(
     return boundary_edges, len(affected_faces)
 
 
-def slice_with_boundaries(main_obj, portal_coll, barrier_coll, selected_only, report):
+def slice_with_boundaries(
+    main_obj,
+    portal_coll,
+    barrier_coll,
+    selected_only,
+    report
+):
     bm = bmesh.new()
     bm.from_mesh(main_obj.data)
-    
+
     boundaries_data = collect_boundary_data(
         main_obj,
         portal_coll,
@@ -484,16 +420,26 @@ def slice_with_boundaries(main_obj, portal_coll, barrier_coll, selected_only, re
         return
     
     total_sliced = 0
+    boundary_edges = set()
     
     # Slice normal geometry with portals and barriers.
     for local_point, local_normal, local_boundary_verts in boundaries_data:
-        boundary_edges, sliced_faces = clip_mesh_with_boundary(
+        new_boundary_edges, sliced_faces = clip_mesh_with_boundary(
             bm,
             local_boundary_verts,
             local_normal
         )
         
+        boundary_edges.update(new_boundary_edges)
         total_sliced += sliced_faces
+    
+    boundary_edges_data = [
+        (
+            edge.verts[0].co.copy(),
+            edge.verts[1].co.copy()
+        )
+        for edge in boundary_edges
+    ]
     
     # Remove any face without area.
     small_faces = [
@@ -517,7 +463,7 @@ def slice_with_boundaries(main_obj, portal_coll, barrier_coll, selected_only, re
         f"Sliced {total_sliced} face(s) with boundaries"
     )
     
-    return boundaries_data
+    return boundary_edges_data
 
 
 def debug_select_boundaries(
@@ -567,7 +513,7 @@ def separate_faces(
     separate_liquids,
     report
 ):
-    boundaries_data = slice_with_boundaries(
+    boundary_edges_data = slice_with_boundaries(
         main_obj,
         portal_coll,
         barrier_coll,
@@ -575,28 +521,33 @@ def separate_faces(
         report
     )
     
+    if boundary_edges_data is None:
+        return
+    
     bm = bmesh.new()
     bm.from_mesh(main_obj.data)
     bm.faces.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
     
-    # Collect the edges that touches the portal and the faces that are coplanar to it
-    
+    # Recover the boundary edges from their vertex coordinates.
     boundary_edges = set()
     
-    for local_point, local_normal, local_boundary_verts in boundaries_data:
+    for edge in bm.edges:
+        edge_v0 = edge.verts[0].co
+        edge_v1 = edge.verts[1].co
         
-        for edge in bm.edges:
-            if not edge_lies_on_boundary(
-                edge,
-                local_point,
-                local_normal,
-                local_boundary_verts
+        for v0, v1 in boundary_edges_data:
+            if (
+                (edge_v0 - v0).length < 0.0001 and
+                (edge_v1 - v1).length < 0.0001
+            ) or (
+                (edge_v0 - v1).length < 0.0001 and
+                (edge_v1 - v0).length < 0.0001
             ):
-                continue
-            
-            boundary_edges.add(edge)
+                boundary_edges.add(edge)
+                break
     
+    # Collect all liquid faces and edges
     
     if separate_liquids:
         # Collect all faces that belong to liquid faces
@@ -615,6 +566,7 @@ def separate_faces(
                     boundary_edges.add(edge)
     
     # Add edge-only barriers.
+    
     for barrier in barrier_coll.objects:
         if barrier.type != 'MESH':
             continue
@@ -645,12 +597,14 @@ def separate_faces(
                     boundary_edges.add(edge)
                     break
     
-    if DEBUG:
+    if DEBUG_SEPARATE_EDGES:
         debug_select_boundaries(
             main_obj,
             boundary_edges,
             report
         )
+        
+        bm.free()
         return
     
     # Floodfill using portal/barrier faces and edge-only barriers as walls.
@@ -686,97 +640,111 @@ def separate_faces(
         if found_boundary:
             components.append(component)
     
+    # Merge coplanar components into the sector on the side they face.
+    
+    for component in list(components):
+        # If all the edges are boundary edges the face is coplanar.
+        if (
+            is_liquid_face(component[0], main_obj)
+            or any(edge not in boundary_edges for edge in component[0].edges)
+        ):
+            continue
+        
+        target_component = None
+        
+        # Find the sector faces on the other side of the boundary edges.
+        for coplanar_face in component:
+            for edge in coplanar_face.edges:
+                for linked_face in edge.link_faces:
+                    if linked_face == coplanar_face:
+                        continue
+                    
+                    # Find which component contains the linked face.
+                    for other_component in components:
+                        if other_component is component:
+                            continue
+                        
+                        if linked_face not in other_component:
+                            continue
+                        
+                        # The linked face is on one side of the coplanar face.
+                        direction = linked_face.calc_center_median() - coplanar_face.calc_center_median()
+                        
+                        if direction.dot(coplanar_face.normal) > 0:
+                            target_component = other_component
+                            break
+                    
+                    if target_component is not None:
+                        break
+                
+                if target_component is not None:
+                    break
+            
+            if target_component is not None:
+                break
+        
+        if target_component is not None:
+            # Merge all coplanar faces from this component.
+            target_component.extend(component)
+            
+            # Remove the original coplanar component.
+            components.remove(component)
+    
     # Merge the liquid faces with the sectors below them and assign the sector type
     
+    component_types = {}
+    
     if separate_liquids:
-        # Create the component AABB's
-        component_bounds = {}
-        
-        for component in components:
-            min_corner = Vector((
-                float('inf'),
-                float('inf'),
-                float('inf')
-            ))
-            
-            max_corner = Vector((
-                float('-inf'),
-                float('-inf'),
-                float('-inf')
-            ))
-            
-            for face in component:
-                for vertex in face.verts:
-                    position = vertex.co
-                    
-                    min_corner.x = min(min_corner.x, position.x)
-                    min_corner.y = min(min_corner.y, position.y)
-                    min_corner.z = min(min_corner.z, position.z)
-                    
-                    max_corner.x = max(max_corner.x, position.x)
-                    max_corner.y = max(max_corner.y, position.y)
-                    max_corner.z = max(max_corner.z, position.z)
-            
-            component_bounds[id(component)] = (
-                min_corner,
-                max_corner
-            )
-        
-        liquid_components = []
-        
-        for component in components:
-            # If the first face is a liquid this is a liquid component
-            if is_liquid_face(component[0], main_obj):
-                liquid_components.append(component)
-        
-        component_types = {}
         liquid_types = get_liquid_types()
         
-        for liquid_component in liquid_components:
+        for component in list(components):
+            if not is_liquid_face(component[0], main_obj):
+                continue
+            
             # Determine the sector type from the liquid material.
             sector_type = 'NONE'
-            material = main_obj.data.materials[liquid_component[0].material_index]
+            material = main_obj.data.materials[component[0].material_index]
             
             for liquid_name, liquid_data in liquid_types.items():
                 if material.name.lower().startswith('*' + liquid_name):
                     sector_type = liquid_data["sector_type"]
                     break
             
-            min_corner, max_corner = component_bounds[id(liquid_component)]
-            
-            # Calculate the midpoint and normal for the liquid component
-            liquid_center = (min_corner + max_corner) * 0.5
-            liquid_normal = liquid_component[0].normal
-            
-            # Find the component on the opposite side of the normal
             target_component = None
             
-            for component in components:
-                if component is liquid_component:
-                    continue
-                
-                min_corner, max_corner = component_bounds[id(component)]
-                
-                # If the liquid midpoint touches the component AABB and is above it
-                if (
-                    min_corner.x <= liquid_center.x <= max_corner.x and
-                    min_corner.y <= liquid_center.y <= max_corner.y and
-                    min_corner.z <= liquid_center.z <= max_corner.z
-                ):
-                    component_center = (min_corner + max_corner) * 0.5
+            for liquid_face in component:             
+                for edge in liquid_face.edges:
+                    for linked_face in edge.link_faces:
+                        if is_liquid_face(linked_face, main_obj):
+                            continue
+                        
+                        for other_component in components:
+                            if other_component is component:
+                                continue
+                            
+                            if linked_face not in other_component:
+                                continue
+                            
+                            direction = linked_face.calc_center_median() - liquid_face.calc_center_median()
+                            
+                            if direction.dot(liquid_face.normal) < 0:
+                                target_component = other_component
+                                break
+                        
+                        if target_component is not None:
+                            break
                     
-                    # Check which side of the liquid surface the component is on.
-                    direction = component_center - liquid_center
-                    
-                    if direction.dot(liquid_normal) < 0:
-                        target_component = component
+                    if target_component is not None:
                         break
+                
+                if target_component is not None:
+                    break
             
             # Add the liquid component to the component below it and assign the sector type
             if target_component is not None:
-                target_component.extend(liquid_component)
+                target_component.extend(component)
                 component_types[id(target_component)] = sector_type
-                components.remove(liquid_component)
+                components.remove(component)
     
     # extract the faces into new objects
     
@@ -878,16 +846,6 @@ class portal_object(bpy.types.PropertyGroup):
 
 
 class sector_properties(bpy.types.PropertyGroup):
-    has_pvs: bpy.props.BoolProperty(
-        name="Has PVS",
-        default=False
-    )
-    
-    has_portals: bpy.props.BoolProperty(
-        name="Has Portals",
-        default=False
-    )
-    
     priority: bpy.props.IntProperty(
         name="Priority",
         default=0,
@@ -951,22 +909,13 @@ class FACEGRAB_OT_slice_with_boundaries(bpy.types.Operator):
             self.report({'ERROR'}, "Portal or barrier collection must be set")
             return {'CANCELLED'}
         
-        if not DEBUG:
-            slice_with_boundaries(
-                main_obj,
-                portal_coll,
-                barrier_coll,
-                props.selected_only,
-                self.report,
-            )
-        else:
-            test_select_affected_faces(
-                main_obj,
-                portal_coll,
-                barrier_coll,
-                props.selected_only,
-                self.report,
-            )
+        slice_with_boundaries(
+            main_obj,
+            portal_coll,
+            barrier_coll,
+            props.selected_only,
+            self.report,
+        )
         
         return {'FINISHED'}
 
@@ -1193,7 +1142,10 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
         
         liquid_sectors = [
             sector for sector in sectors
-            if sector.sector_props.sector_type in liquid_types
+            if any(
+                data["sector_type"] == sector.sector_props.sector_type
+                for data in liquid_types.values()
+            )
         ]
         
         if not sectors:
@@ -1286,8 +1238,12 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
         # Assign the sectors with liquids PVS
         
         for liquid_sector in liquid_sectors:
-            liquid_data = liquid_types[liquid_sector.sector_props.sector_type]
-
+            liquid_data = next(
+                data
+                for data in liquid_types.values()
+                if data["sector_type"] == liquid_sector.sector_props.sector_type
+            )
+            
             if not liquid_data["is_semitransparent"]:
                 continue
             
@@ -1300,14 +1256,14 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
                 liquid_max.z
             ))
             
+            upper_sector = None
+            
             for other_sector in sectors:
                 if other_sector == liquid_sector:
                     continue
                 
                 other_min = Vector(other_sector.sector_props.min_aabb)
                 other_max = Vector(other_sector.sector_props.max_aabb)
-                
-                liquid_touches = False
                 
                 # If the liquid top center touches the sector and they have the same priority
                 if (
@@ -1316,36 +1272,33 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
                     other_min.y <= liquid_top_center.y <= other_max.y and
                     other_min.z == liquid_top_center.z
                 ):
-                    liquid_touches = True
+                    upper_sector = other_sector
                     break
-                
-                if not liquid_touches:
-                    continue
-                
-                # Don't add a PVS if a portal already connects the sectors.
-                if any(
-                    (
-                        portal.portal_props.sector_0 == liquid_sector and
-                        portal.portal_props.sector_1 == other_sector
-                    ) or (
-                        portal.portal_props.sector_0 == other_sector and
-                        portal.portal_props.sector_1 == liquid_sector
-                    )
-                    for portal in portals
-                ):
-                    continue
-                
-                # Don't add a duplicate PVS.
-                if not any(item.obj == other_sector for item in liquid_sector.sector_props.pvs_objects):
-                    item = liquid_sector.sector_props.pvs_objects.add()
-                    item.obj = other_sector
-                
-                if not any(item.obj == liquid_sector for item in other_sector.sector_props.pvs_objects):
-                    item = other_sector.sector_props.pvs_objects.add()
-                    item.obj = liquid_sector
-        
-        sector.sector_props.has_pvs = bool(sector.sector_props.pvs_objects)
-        sector.sector_props.has_portals = bool(sector.sector_props.portal_objects)
+            
+            if upper_sector is None:
+                continue
+            
+            # Don't add a PVS if a portal already connects the sectors.
+            if any(
+                (
+                    portal.portal_props.sector_0 == liquid_sector and
+                    portal.portal_props.sector_1 == other_sector
+                ) or (
+                    portal.portal_props.sector_0 == other_sector and
+                    portal.portal_props.sector_1 == liquid_sector
+                )
+                for portal in portals
+            ):
+                continue
+            
+            # Don't add a duplicate PVS.
+            if not any(item.obj == other_sector for item in liquid_sector.sector_props.pvs_objects):
+                item = liquid_sector.sector_props.pvs_objects.add()
+                item.obj = other_sector
+            
+            if not any(item.obj == liquid_sector for item in other_sector.sector_props.pvs_objects):
+                item = other_sector.sector_props.pvs_objects.add()
+                item.obj = liquid_sector
         
         self.report({'INFO'}, "Assigned portals and pvs")
         return {'FINISHED'}
