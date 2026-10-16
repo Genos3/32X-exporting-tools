@@ -383,7 +383,7 @@ class OBJECT_OT_map_slice_grid(bpy.types.Operator):
                 current = math.floor(start / size) * size + size
                 
                 while current < end - 0.001:
-                    geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
+                    geom = list(bm.verts) + list(bm.edges) + list(bm.faces)
                     
                     plane_co = [0, 0, 0]
                     plane_co[axis_idx] = current
@@ -489,12 +489,13 @@ def register():
         type=map_properties
     )
     
-    draw_handler = bpy.types.SpaceView3D.draw_handler_add(
-        draw_map_boundaries,
-        (),
-        'WINDOW',
-        'POST_VIEW'
-    )
+    if draw_handler is None:
+        draw_handler = bpy.types.SpaceView3D.draw_handler_add(
+            draw_map_boundaries,
+            (),
+            'WINDOW',
+            'POST_VIEW'
+        )
 
 
 def unregister():

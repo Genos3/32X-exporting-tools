@@ -112,6 +112,57 @@ ENTITY_DATABASE = {
     "light_torch_small_wallable": "lights",
 }
 
+ENTITY_COLLISION_BOXES = {
+    # Enemies
+    "monster_army": ((-16, -16, -24), (16, 16, 40)),
+    "monster_dog": ((-32, -32, -24), (32, 32, 40)),
+    "monster_ogre": ((-32, -32, -24), (32, 32, 64)),
+    "monster_ogre_marksman": ((-32, -32, -24), (32, 32, 64)),
+    "monster_knight": ((-16, -16, -24), (16, 16, 40)),
+    "monster_hell_knight": ((-16, -16, -24), (16, 16, 40)),
+    "monster_wizard": ((-16, -16, -24), (16, 16, 40)),
+    "monster_demon1": ((-32, -32, -24), (32, 32, 64)),
+    "monster_shambler": ((-32, -32, -24), (32, 32, 64)),
+    "monster_boss": ((-128, -128, -24), (128, 128, 256)),
+    "monster_enforcer": ((-16, -16, -24), (16, 16, 40)),
+    "monster_shalrath": ((-32, -32, -24), (32, 32, 48)),
+    "monster_tarbaby": ((-16, -16, -24), (16, 16, 24)),
+    "monster_fish": ((-16, -16, -24), (16, 16, 24)),
+    "monster_oldone": ((-16, -16, -24), (16, 16, 32)),
+    "monster_zombie": ((-16, -16, -24), (16, 16, 32)),
+
+    # Players / Starts
+    "info_player_start": ((-16, -16, -24), (16, 16, 32)),
+    "info_player_deathmatch": ((-16, -16, -24), (16, 16, 32)),
+    "info_player_coop": ((-16, -16, -24), (16, 16, 32)),
+    "info_player_start2": ((-16, -16, -24), (16, 16, 32)),
+    "info_teleport_destination": ((-16, -16, -24), (16, 16, 32)),
+    "info_intermission": ((-16, -16, -24), (16, 16, 32)),
+    "path_corner": ((-8, -8, -8), (8, 8, 8)),
+
+    # Items
+    "item_cells": ((-16, -16, -16), (16, 16, 16)),
+    "item_rockets": ((-16, -16, -16), (16, 16, 16)),
+    "item_shells": ((-16, -16, -16), (16, 16, 16)),
+    "item_spikes": ((-16, -16, -16), (16, 16, 16)),
+    "item_health": ((-16, -16, 0), (16, 16, 16)),
+    "item_armor1": ((-16, -16, -24), (16, 16, 32)),
+    "item_armor2": ((-16, -16, -24), (16, 16, 32)),
+    "item_armorInv": ((-16, -16, -24), (16, 16, 32)),
+    "item_key1": ((-16, -16, -24), (16, 16, 32)),
+    "item_key2": ((-16, -16, -24), (16, 16, 32)),
+    "item_sigil": ((-16, -16, -24), (16, 16, 32)),
+
+    # Weapons
+    "weapon_shotgun": ((-16, -16, 0), (16, 16, 32)),
+    "weapon_supershotgun": ((-16, -16, 0), (16, 16, 32)),
+    "weapon_nailgun": ((-16, -16, 0), (16, 16, 32)),
+    "weapon_supernailgun": ((-16, -16, 0), (16, 16, 32)),
+    "weapon_grenadelauncher": ((-16, -16, 0), (16, 16, 32)),
+    "weapon_rocketlauncher": ((-16, -16, 0), (16, 16, 32)),
+    "weapon_lightning": ((-16, -16, 0), (16, 16, 32)),
+}
+
 LIQUID_TYPES = {
     "water": {
         "sector_type": "WATER",
@@ -252,4 +303,62 @@ CATEGORY_DATA = {
             "mangle",
         },
     },
+}
+
+SPAWNFLAGS = {
+    "light": {
+        1: "Start Off",
+    },
+    
+    "func_door": {
+        1: "Start Open",
+        2: "Don't Link",
+        4: "Gold Key",
+        8: "Silver Key",
+        16: "Toggle",
+        32: "Touch Opens",
+    },
+    
+    "func_door_secret": {
+		1 : "Open once only",
+		2 : "Moves left first",
+		4 : "Moves down first",
+		8 : "Not shootable",
+        16 : "Always shootable",
+    },
+    
+    "func_button": {
+        1: "Don't Link",
+    },
+    
+    "item_health": {
+        1: "Rotten",
+        2: "Megahealth",
+    },
+    
+    "monster_*": {
+        1: "Ambush",
+    },
+}
+
+GLOBAL_SPAWNFLAGS = {
+    256: "Not in Easy",
+    512: "Not in Normal",
+    1024: "Not in Hard",
+    2048: "Not in Deathmatch",
+}
+
+LIGHT_STYLES = {
+    0: "Normal",
+    10: "Fluorescent flicker",
+    2: "Slow, strong pulse",
+    11: "Slow pulse, noblack",
+    5: "Gentle pulse",
+    1: "Flicker A",
+    6: "Flicker B",
+    3: "Candle A",
+    7: "Candle B",
+    8: "Candle C",
+    4: "Fast strobe",
+    9: "Slow strobe",
 }

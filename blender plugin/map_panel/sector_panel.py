@@ -64,6 +64,65 @@ def edge_plane_intersect(v1, v2, plane_co, plane_no, epsilon=1e-4):
     return v1.lerp(v2, t)
 
 
+def point_in_concave_polygon(point, poly_verts, poly_normal, epsilon=1e-4):
+    # Project onto the two axes least aligned with the face normal.
+    normal = Vector((
+        abs(poly_normal.x),
+        abs(poly_normal.y),
+        abs(poly_normal.z)
+    ))
+    
+    if normal.x >= normal.y and normal.x >= normal.z:
+        axis_u = 1
+        axis_v = 2
+    elif normal.y >= normal.z:
+        axis_u = 0
+        axis_v = 2
+    else:
+        axis_u = 0
+        axis_v = 1
+    
+    point_u = point[axis_u]
+    point_v = point[axis_v]
+    
+    inside = False
+    
+    for index in range(len(poly_verts)):
+        a = poly_verts[index]
+        b = poly_verts[(index + 1) % len(poly_verts)]
+        
+        a_u = a[axis_u]
+        a_v = a[axis_v]
+        b_u = b[axis_u]
+        b_v = b[axis_v]
+        
+        # Point lies on the polygon edge.
+        edge = b - a
+        to_point = point - a
+        
+        if edge.cross(to_point).length <= epsilon:
+            if (
+                min(a_u, b_u) - epsilon <= point_u <= max(a_u, b_u) + epsilon
+                and
+                min(a_v, b_v) - epsilon <= point_v <= max(a_v, b_v) + epsilon
+            ):
+                return True
+        
+        # Ray crossing test.
+        if (a_v > point_v) != (b_v > point_v):
+            intersection_u = (
+                a_u
+                + (point_v - a_v)
+                * (b_u - a_u)
+                / (b_v - a_v)
+            )
+            
+            if point_u < intersection_u:
+                inside = not inside
+    
+    return inside
+
+
 def is_liquid_face(face, main_obj):
     material = main_obj.data.materials[face.material_index]
     return material and material.name.startswith("*")
@@ -180,65 +239,6 @@ def vertices_connected_on_plane(
     return True
 
 
-def point_in_concave_polygon(point, poly_verts, poly_normal, epsilon=1e-4):
-    # Project onto the two axes least aligned with the face normal.
-    normal = Vector((
-        abs(poly_normal.x),
-        abs(poly_normal.y),
-        abs(poly_normal.z)
-    ))
-    
-    if normal.x >= normal.y and normal.x >= normal.z:
-        axis_u = 1
-        axis_v = 2
-    elif normal.y >= normal.z:
-        axis_u = 0
-        axis_v = 2
-    else:
-        axis_u = 0
-        axis_v = 1
-    
-    point_u = point[axis_u]
-    point_v = point[axis_v]
-    
-    inside = False
-    
-    for index in range(len(poly_verts)):
-        a = poly_verts[index]
-        b = poly_verts[(index + 1) % len(poly_verts)]
-        
-        a_u = a[axis_u]
-        a_v = a[axis_v]
-        b_u = b[axis_u]
-        b_v = b[axis_v]
-        
-        # Point lies on the polygon edge.
-        edge = b - a
-        to_point = point - a
-        
-        if edge.cross(to_point).length <= epsilon:
-            if (
-                min(a_u, b_u) - epsilon <= point_u <= max(a_u, b_u) + epsilon
-                and
-                min(a_v, b_v) - epsilon <= point_v <= max(a_v, b_v) + epsilon
-            ):
-                return True
-        
-        # Ray crossing test.
-        if (a_v > point_v) != (b_v > point_v):
-            intersection_u = (
-                a_u
-                + (point_v - a_v)
-                * (b_u - a_u)
-                / (b_v - a_v)
-            )
-            
-            if point_u < intersection_u:
-                inside = not inside
-    
-    return inside
-
-
 def clip_mesh_with_boundary(
     bm,
     boundary_verts,
@@ -285,6 +285,22 @@ def clip_mesh_with_boundary(
     bm.verts.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
     bm.faces.ensure_lookup_table()
+    
+    # Include existing edges that already lie on the boundary plane.
+    for edge in bm.edges:
+        v0 = edge.verts[0].co
+        v1 = edge.verts[1].co
+        
+        if (
+            abs((v0 - boundary_co).dot(boundary_normal)) < epsilon
+            and
+            abs((v1 - boundary_co).dot(boundary_normal)) < epsilon
+            and
+            point_in_polygon(v0, boundary_verts, boundary_normal, epsilon)
+            and
+            point_in_polygon(v1, boundary_verts, boundary_normal, epsilon)
+        ):
+            boundary_edges.add(edge)
     
     if DEBUG_SLICE_VERTICES:
         for vertex in intersection_vertices:
@@ -406,7 +422,7 @@ def slice_with_boundaries(
 ):
     bm = bmesh.new()
     bm.from_mesh(main_obj.data)
-
+    
     boundaries_data = collect_boundary_data(
         main_obj,
         portal_coll,
@@ -503,6 +519,52 @@ def debug_select_boundaries(
         {'INFO'},
         f"Debug: Selected {len(boundary_edges)} boundary edge(s)"
     )
+
+
+def clean_sectors(base_name, main_obj=None, created=None):
+    # Remove any empty sector
+    
+    if created and main_obj and not main_obj.data.polygons:
+        old_mesh = main_obj.data
+        bpy.data.objects.remove(main_obj, do_unlink=True)
+        
+        if old_mesh.users == 0:
+            bpy.data.meshes.remove(old_mesh)
+    
+    sector_prefix = f"{base_name}_sector_"
+    
+    # Remove any orphaned object and mesh
+    
+    for obj in list(bpy.data.objects):
+        if obj.name.startswith(sector_prefix) and not obj.users_collection:
+            mesh = obj.data if obj.type == 'MESH' else None
+            bpy.data.objects.remove(obj, do_unlink=True)
+            
+            if mesh and mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+    
+    # Reorder the sectors to get rid of any empty space
+    
+    sector_index = 0
+    
+    sectors = sorted(
+        (
+            (obj, int(obj.name[len(sector_prefix):]))
+            for obj in bpy.data.objects
+            if obj.name.startswith(sector_prefix)
+            and obj.name[len(sector_prefix):].isdigit()
+        ),
+        key=lambda item: item[1]
+    )
+    
+    for obj, index in sectors:
+        obj.name = f"{sector_prefix}temp_{index}"
+        obj.data.name = obj.name
+    
+    for obj, index in sectors:
+        obj.name = f"{sector_prefix}{sector_index}"
+        obj.data.name = obj.name
+        sector_index += 1
 
 
 def separate_faces(
@@ -750,7 +812,25 @@ def separate_faces(
     
     created = []
     
-    for i, component in enumerate(components):
+    base_name = main_obj.name.rpartition("_sector_")
+    
+    if base_name[2].isdigit():
+        base_name = base_name[0]
+    else:
+        base_name = main_obj.name
+    
+    sector_prefix = f"{base_name}_sector_"
+    sector_index = max(
+        (
+            int(obj.name[len(sector_prefix):])
+            for obj in bpy.data.objects
+            if obj.name.startswith(sector_prefix)
+            and obj.name[len(sector_prefix):].isdigit()
+        ),
+        default=-1
+    ) + 1
+    
+    for component in components:
         sector_type = component_types.get(id(component), 'NONE')
         
         bm_sector = bmesh.new()
@@ -775,7 +855,8 @@ def separate_faces(
             except ValueError:
                 pass
         
-        mesh = bpy.data.meshes.new(f"{main_obj.name}_sector_{i}")
+        mesh = bpy.data.meshes.new(f"{sector_prefix}{sector_index}")
+        sector_index += 1
         bm_sector.to_mesh(mesh)
         bm_sector.free()
         
@@ -800,6 +881,10 @@ def separate_faces(
     bm.to_mesh(main_obj.data)
     main_obj.data.update()
     bm.free()
+    
+    # Removes any empty sector and reorders them
+    
+    clean_sectors(base_name, main_obj, created)
     
     report({'INFO'}, f"Created {len(created)} sector(s)")
     return created
@@ -845,6 +930,23 @@ class portal_object(bpy.types.PropertyGroup):
     )
 
 
+def get_sector_types(self, context):
+    items = [("NONE", "None", "")]
+    seen = {"NONE"}
+    
+    for liquid_data in get_liquid_types().values():
+        sector_type = liquid_data["sector_type"]
+        if sector_type not in seen:
+            seen.add(sector_type)
+            items.append((
+                sector_type,
+                sector_type.title(),
+                ""
+            ))
+    
+    return items
+
+
 class sector_properties(bpy.types.PropertyGroup):
     priority: bpy.props.IntProperty(
         name="Priority",
@@ -867,9 +969,9 @@ class sector_properties(bpy.types.PropertyGroup):
         size=3
     )
     
-    sector_type: bpy.props.StringProperty(
+    sector_type: bpy.props.EnumProperty(
         name="Type",
-        default="NONE"
+        items=get_sector_types
     )
     
     pvs_objects: bpy.props.CollectionProperty(
@@ -884,76 +986,6 @@ class sector_properties(bpy.types.PropertyGroup):
 class portal_properties(bpy.types.PropertyGroup):
     sector_0: bpy.props.PointerProperty(type=bpy.types.Object)
     sector_1: bpy.props.PointerProperty(type=bpy.types.Object)
-
-
-class FACEGRAB_OT_slice_with_boundaries(bpy.types.Operator):
-    bl_idname = "facegrab.slice_with_boundaries"
-    bl_label = "Slice Faces With Boundaries"
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    @classmethod
-    def poll(cls, context):
-        return context.mode == 'OBJECT'
-    
-    def execute(self, context):
-        props = context.scene.sector_panel_options
-        main_obj = props.main_obj
-        portal_coll = props.portal_collection
-        barrier_coll = props.barrier_collection
-        
-        if not main_obj or main_obj.type != 'MESH':
-            self.report({'ERROR'}, "Main object must be a mesh")
-            return {'CANCELLED'}
-        
-        if not portal_coll and not barrier_coll:
-            self.report({'ERROR'}, "Portal or barrier collection must be set")
-            return {'CANCELLED'}
-        
-        slice_with_boundaries(
-            main_obj,
-            portal_coll,
-            barrier_coll,
-            props.selected_only,
-            self.report,
-        )
-        
-        return {'FINISHED'}
-
-
-class FACEGRAB_OT_separate_sectors(bpy.types.Operator):
-    bl_options = {'REGISTER', 'UNDO'}
-    bl_idname = "facegrab.separate_sectors"
-    bl_label = "Separate Faces With Boundaries Into Sectors"
-    bl_description = "Move faces from the main object that are located within portals and barriers into new objects"
-    
-    @classmethod
-    def poll(cls, context):
-        return context.mode == 'OBJECT'
-    
-    def execute(self, context):
-        props = context.scene.sector_panel_options
-        main_obj = props.main_obj
-        portal_coll = props.portal_collection
-        barrier_coll = props.barrier_collection
-        
-        if not main_obj or main_obj.type != 'MESH':
-            self.report({'ERROR'}, "Main object must be a mesh")
-            return {'CANCELLED'}
-        
-        if not portal_coll and not barrier_coll:
-            self.report({'ERROR'}, "Portal or barrier collection not set")
-            return {'CANCELLED'}
-        
-        separate_faces(
-            main_obj,
-            portal_coll,
-            barrier_coll,
-            props.selected_only,
-            props.separate_liquids,
-            self.report
-        )
-        
-        return {'FINISHED'}
 
 
 class FACEGRAB_OT_add_portal(bpy.types.Operator):
@@ -1030,13 +1062,110 @@ class FACEGRAB_OT_add_barrier(bpy.types.Operator):
         
         coll.objects.link(barrier)
         
-        mat = get_portal_material()
+        mat = get_barrier_material()
         
         barrier.data.materials.clear()
         barrier.data.materials.append(mat)
         barrier.map_props.map_type = 'BARRIER'
         
         self.report({'INFO'}, "Barrier created")
+        return {'FINISHED'}
+
+
+class FACEGRAB_OT_slice_with_boundaries(bpy.types.Operator):
+    bl_idname = "facegrab.slice_with_boundaries"
+    bl_label = "Slice Faces With Boundaries"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT'
+    
+    def execute(self, context):
+        props = context.scene.sector_panel_options
+        main_obj = props.main_obj
+        portal_coll = props.portal_collection
+        barrier_coll = props.barrier_collection
+        
+        if not main_obj or main_obj.type != 'MESH':
+            self.report({'ERROR'}, "Main object must be a mesh")
+            return {'CANCELLED'}
+        
+        if not portal_coll and not barrier_coll:
+            self.report({'ERROR'}, "Portal or barrier collection must be set")
+            return {'CANCELLED'}
+        
+        slice_with_boundaries(
+            main_obj,
+            portal_coll,
+            barrier_coll,
+            props.selected_only,
+            self.report,
+        )
+        
+        return {'FINISHED'}
+
+
+class FACEGRAB_OT_separate_sectors(bpy.types.Operator):
+    bl_options = {'REGISTER', 'UNDO'}
+    bl_idname = "facegrab.separate_sectors"
+    bl_label = "Separate Faces With Boundaries Into Sectors"
+    bl_description = "Move faces from the main object that are located within portals and barriers into new objects"
+    
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT'
+    
+    def execute(self, context):
+        props = context.scene.sector_panel_options
+        main_obj = props.main_obj
+        portal_coll = props.portal_collection
+        barrier_coll = props.barrier_collection
+        
+        if not main_obj or main_obj.type != 'MESH':
+            self.report({'ERROR'}, "Main object must be a mesh")
+            return {'CANCELLED'}
+        
+        if not portal_coll and not barrier_coll:
+            self.report({'ERROR'}, "Portal or barrier collection not set")
+            return {'CANCELLED'}
+        
+        separate_faces(
+            main_obj,
+            portal_coll,
+            barrier_coll,
+            props.selected_only,
+            props.separate_liquids,
+            self.report
+        )
+        
+        return {'FINISHED'}
+
+
+class FACEGRAB_OT_clean_sectors(bpy.types.Operator):
+    bl_idname = "facegrab.clean_sectors"
+    bl_label = "Clean Sectors"
+    bl_description = "Remove orphaned sectors and renumber sector objects and meshes"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        props = context.scene.sector_panel_options
+        main_obj = props.main_obj or context.active_object
+        
+        if not main_obj:
+            self.report({'ERROR'}, "Set a Main Object or select a sector")
+            return {'CANCELLED'}
+        
+        name_parts = main_obj.name.rpartition("_sector_")
+        
+        if name_parts[2].split(".")[0].isdigit():
+            base_name = name_parts[0]
+        else:
+            base_name = main_obj.name
+        
+        clean_sectors(base_name)
+        
+        self.report({'INFO'}, "Sectors cleaned")
         return {'FINISHED'}
 
 
@@ -1053,6 +1182,7 @@ class FACEGRAB_OT_assign_sector_bounds_and_priorities(bpy.types.Operator):
             obj.map_props.map_type == 'SECTOR'
         ]
         
+        # Create the AABB's
         for sector in sectors:
             min_corner = Vector((
                 float('inf'),
@@ -1168,6 +1298,8 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
         
         epsilon = 0.01
         
+        # Assign the portal sectors
+        
         for portal in portals:
             if not portal.data.polygons:
                 continue
@@ -1201,6 +1333,8 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
         # Clear the existing PVS
         for sector in sectors:
             sector.sector_props.pvs_objects.clear()
+        
+        # Assign the sector PVS
         
         for barrier in barriers:
             if not barrier.data.polygons:
@@ -1256,7 +1390,7 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
                 liquid_max.z
             ))
             
-            upper_sector = None
+            upper_sector_found = False
             
             for other_sector in sectors:
                 if other_sector == liquid_sector:
@@ -1267,15 +1401,14 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
                 
                 # If the liquid top center touches the sector and they have the same priority
                 if (
-                    other_sector.sector_props.priority == liquid_sector.sector_props.priority and
                     other_min.x <= liquid_top_center.x <= other_max.x and
                     other_min.y <= liquid_top_center.y <= other_max.y and
-                    other_min.z == liquid_top_center.z
+                    abs(other_min.z - liquid_top_center.z) < 0.0001
                 ):
-                    upper_sector = other_sector
+                    upper_sector_found = True
                     break
             
-            if upper_sector is None:
+            if not upper_sector_found:
                 continue
             
             # Don't add a PVS if a portal already connects the sectors.
@@ -1301,6 +1434,50 @@ class FACEGRAB_OT_assign_portals_and_pvs(bpy.types.Operator):
                 item.obj = liquid_sector
         
         self.report({'INFO'}, "Assigned portals and pvs")
+        return {'FINISHED'}
+
+
+class FACEGRAB_OT_assign_sector_type_from_materials(bpy.types.Operator):
+    bl_idname = "facegrab.assign_sector_type_from_materials"
+    bl_label = "Assign Sector Type From Materials"
+    
+    def execute(self, context):
+        sectors = [
+            obj for obj in bpy.data.objects
+            if obj.map_props.map_type == 'SECTOR'
+        ]
+        
+        if not sectors:
+            self.report({'WARNING'}, "No sectors found in scene")
+            return {'CANCELLED'}
+        
+        liquid_types = get_liquid_types()
+        assigned_count = 0
+        
+        for sector in sectors:
+            for face in sector.data.polygons:
+                material = sector.data.materials[face.material_index]
+                
+                if not material:
+                    continue
+                
+                material_name = material.name.lower()
+                
+                for liquid_name, liquid_data in liquid_types.items():
+                    if material_name.startswith("*" + liquid_name):
+                        sector.sector_props.sector_type = liquid_data["sector_type"]
+                        assigned_count += 1
+                        break
+                else:
+                    continue
+                
+                break
+        
+        self.report(
+            {'INFO'},
+            f"Assigned sector type to {assigned_count} sector(s)"
+        )
+        
         return {'FINISHED'}
 
 
@@ -1380,13 +1557,15 @@ class FACEGRAB_PT_sector_panel(bpy.types.Panel):
         layout.prop(props, "barrier_collection")
         layout.prop(props, "selected_only")
         layout.prop(props, "separate_liquids")
-        layout.operator("facegrab.add_portal", text="Add Portal")
-        layout.operator("facegrab.add_barrier", text="Add Barrier")
-        layout.operator("facegrab.slice_with_boundaries", text="Slice With Sector Boundaries")
-        layout.operator("facegrab.separate_sectors", text="Separate Faces Into Sectors")
+        layout.operator("facegrab.add_portal")
+        layout.operator("facegrab.add_barrier")
+        layout.operator("facegrab.slice_with_boundaries")
+        layout.operator("facegrab.separate_sectors")
+        layout.operator("facegrab.clean_sectors")
         layout.operator("facegrab.assign_sector_bounds_and_priorities")
-        layout.operator("facegrab.assign_portals_and_pvs", text="Assign Portals and PVS")
-        layout.operator("facegrab.assign_entities_to_sectors", text="Assign Entities to Sectors")
+        layout.operator("facegrab.assign_portals_and_pvs")
+        layout.operator("facegrab.assign_sector_type_from_materials")
+        layout.operator("facegrab.assign_entities_to_sectors")
 
 
 classes = (
@@ -1397,10 +1576,12 @@ classes = (
     sector_panel_options,
     FACEGRAB_OT_slice_with_boundaries,
     FACEGRAB_OT_separate_sectors,
+    FACEGRAB_OT_clean_sectors,
     FACEGRAB_OT_add_portal,
     FACEGRAB_OT_add_barrier,
     FACEGRAB_OT_assign_sector_bounds_and_priorities,
     FACEGRAB_OT_assign_portals_and_pvs,
+    FACEGRAB_OT_assign_sector_type_from_materials,
     FACEGRAB_OT_assign_entities_to_sectors,
     FACEGRAB_PT_sector_panel,
 )

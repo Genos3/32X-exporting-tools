@@ -535,23 +535,17 @@ class FACEGRAB_OT_clean_internal_edges(bpy.types.Operator):
             # Dissolve interior vertices
             verts = get_vertices_by_type(bm, obj, VERTEX_INTERIOR)
             if verts:
-                bmesh.ops.dissolve_verts(bm, verts=verts, use_face_split=True)
+                bmesh.ops.dissolve_verts(bm, verts=verts, use_face_split=False)
+            
+            # Dissolve geometry T edges
+            edges = get_edges_by_type(bm, obj, EDGE_T_GEOMETRY)
+            if edges:
+                bmesh.ops.dissolve_edges(bm, edges=edges, use_verts=True, use_face_split=False)
             
             # Dissolve boundary vertices
             verts = get_vertices_by_type(bm, obj, VERTEX_BOUNDARY_EDGE)
             if verts:
-                bmesh.ops.dissolve_verts(bm, verts=verts, use_face_split=True)
-            
-            # Dissolve interior edges
-            edges = get_edges_by_type(bm, obj, EDGE_INTERIOR)
-            if edges:
-                bmesh.ops.dissolve_edges(bm, edges=edges, use_verts=True, use_face_split=True)
-            
-            # Dissolve geometry T edges twice
-            for i in range(2):
-                edges = get_edges_by_type(bm, obj, EDGE_T_GEOMETRY)
-                if edges:
-                    bmesh.ops.dissolve_edges(bm, edges=edges, use_verts=True, use_face_split=True)
+                bmesh.ops.dissolve_verts(bm, verts=verts, use_face_split=False)
             
             # Triangulate all faces in memory
             bmesh.ops.triangulate(
@@ -561,15 +555,21 @@ class FACEGRAB_OT_clean_internal_edges(bpy.types.Operator):
                 ngon_method='BEAUTY'
             )
             
-            # Dissolve texture T edges
-            edges = get_edges_by_type(bm, obj, EDGE_T_TEXTURE)
+            # Dissolve geometry and texture T edges
+            edges = get_edges_by_type(bm, obj, EDGE_T_GEOMETRY | EDGE_T_TEXTURE)
             if edges:
-                bmesh.ops.dissolve_edges(bm, edges=edges, use_verts=False, use_face_split=True)
+                bmesh.ops.dissolve_edges(bm, edges=edges, use_verts=True, use_face_split=False)
             
-            # Dissolve geometry T edges
-            edges = get_edges_by_type(bm, obj, EDGE_T_GEOMETRY)
+            # Dissolve boundary vertices
+            # Only needed in Blender 4.1+
+            verts = get_vertices_by_type(bm, obj, VERTEX_BOUNDARY_EDGE)
+            if verts:
+                bmesh.ops.dissolve_verts(bm, verts=verts, use_face_split=False)
+            
+            # Dissolve interior edges
+            edges = get_edges_by_type(bm, obj, EDGE_INTERIOR)
             if edges:
-                bmesh.ops.dissolve_edges(bm, edges=edges, use_verts=True, use_face_split=True)
+                bmesh.ops.dissolve_edges(bm, edges=edges, use_verts=True, use_face_split=False)
             
             # Dissolve corner edges
             edges = get_edges_by_type(bm, obj, EDGE_CORNER)

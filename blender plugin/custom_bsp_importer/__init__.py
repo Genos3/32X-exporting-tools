@@ -36,7 +36,7 @@ class IMPORT_SCENE_OT_quake_bsp(
     
     scale: FloatProperty(
         name="Scale",
-        default=0.03125 # 1 Meter = 32 Quake units
+        default=1 / 32 # 1 Meter = 32 Quake units
     )
     
     import_world: BoolProperty(

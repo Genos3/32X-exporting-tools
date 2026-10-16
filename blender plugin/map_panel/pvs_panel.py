@@ -1,3 +1,5 @@
+import os
+
 import bpy
 import re
 
@@ -26,6 +28,28 @@ def gather_objects_in_collection(coll, out_list):
     
     for child in coll.children:
         gather_objects_in_collection(child, out_list)
+
+
+class OBJECT_OT_assign_sector_type(bpy.types.Operator):
+    bl_idname = "object.assign_sector_type"
+    bl_label = "Assign to Selected"
+    
+    def execute(self, context):
+        obj = context.object
+        
+        if not obj or obj.map_props.map_type != 'SECTOR':
+            return {'CANCELLED'}
+        
+        sector_type = obj.sector_props.sector_type
+        
+        for selected_obj in context.selected_objects:
+            if selected_obj.map_props.map_type != 'SECTOR':
+                continue
+            
+            selected_obj.sector_props.sector_type = sector_type
+        
+        self.report({'INFO'}, f"Sector type assigned")
+        return {'FINISHED'}
 
 
 class OBJECT_OT_pvs_add_selected(bpy.types.Operator):
@@ -151,61 +175,61 @@ class OBJECT_OT_vsd_export(bpy.types.Operator):
             objs_to_export
         )
         
-        object_ids = {
-            obj: i
-            for i, obj in enumerate(objs_to_export)
-        }
-        
-        filepath = bpy.path.abspath("//map.vsd")
+        filepath = os.path.splitext(bpy.data.filepath)[0] + ".vsd"
         
         with open(filepath, "w") as f:
             for obj in objs_to_export:
-                obj_id = object_ids[obj]
-                
                 if obj.map_props.map_type == 'NONE':
                     continue
                 
-                f.write(f"o {obj_id}\n")
-                
                 if obj.map_props.map_type == 'SECTOR':
-                    f.write("t 1\n")
+                    f.write("sector\n")
+                    f.write("{\n")
+                    f.write(f"name {obj.name}\n")
+                    f.write(f"priority {obj.sector_props.priority}\n")
+                    f.write(f"type {obj.sector_props.sector_type}\n")
                     
-                    if obj.sector_props.visibility_type == 'PVS':
-                        f.write("vt 0\n")
+                    if obj.sector_props.pvs_objects:
+                        pvs_names = [
+                            item.obj.name
+                            for item in obj.sector_props.pvs_objects
+                            if item.obj
+                        ]
                         
-                        ids = []
-                        
-                        for item in obj.sector_props.pvs_objects:
-                            if item.obj:
-                                ids.append(str(
-                                    object_ids[item.obj]
-                                ))
-                        
-                        if ids:
-                            f.write(f"s {' '.join(ids)}\n")
+                        if pvs_names:
+                            f.write(f"pvs {' '.join(pvs_names)}\n")
                     
-                    else:
-                        f.write("vt 1\n")
+                    portal_names = [
+                        portal.name
+                        for portal in objs_to_export
+                        if portal.map_props.map_type == 'PORTAL'
+                        and obj in (
+                            portal.portal_props.sector_0,
+                            portal.portal_props.sector_1
+                        )
+                    ]
+                    
+                    if portal_names:
+                        f.write(f"portals {' '.join(portal_names)}\n")
+                    
+                    f.write("}\n\n")
                 
-                else:
-                    f.write("t 2\n")
-                    
-                    ids = []
+                elif obj.map_props.map_type == 'PORTAL':
+                    f.write("portal\n")
+                    f.write("{\n")
+                    f.write(f"name {obj.name}\n")
                     
                     if obj.portal_props.sector_0:
-                        ids.append(str(
-                             object_ids[obj.portal_props.sector_0]
-                        ))
+                        f.write(
+                            f"sector_0 {obj.portal_props.sector_0.name}\n"
+                        )
                     
                     if obj.portal_props.sector_1:
-                        ids.append(str(
-                            object_ids[obj.portal_props.sector_1]
-                        ))
+                        f.write(
+                            f"sector_1 {obj.portal_props.sector_1.name}\n"
+                        )
                     
-                    if ids:
-                        f.write(f"s {' '.join(ids)}\n")
-                
-                f.write("\n")
+                    f.write("}\n\n")
         
         self.report({'INFO'}, f"VSD exported to {filepath}")
         return {'FINISHED'}
@@ -237,6 +261,9 @@ class OBJECT_PT_pvs_panel(bpy.types.Panel):
             
             layout.prop(obj.sector_props, "priority")
             layout.prop(obj.sector_props, "sector_type")
+            layout.operator("object.assign_sector_type")
+            
+            layout.label(text="Assign Sectors")
             
             layout.operator("object.pvs_add_selected")
             
@@ -252,6 +279,7 @@ class OBJECT_PT_pvs_panel(bpy.types.Panel):
                     op.index = i
         
         elif obj.map_props.map_type == 'PORTAL':
+            layout.label(text="Assign Sectors")
             layout.operator("object.portal_add_selected")
             
             props = obj.portal_props
@@ -269,6 +297,7 @@ class OBJECT_PT_pvs_panel(bpy.types.Panel):
 
 
 classes = (
+    OBJECT_OT_assign_sector_type,
     OBJECT_OT_pvs_add_selected,
     OBJECT_OT_pvs_remove,
     OBJECT_OT_pvs_clear,

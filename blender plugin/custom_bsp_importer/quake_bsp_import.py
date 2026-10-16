@@ -228,7 +228,7 @@ def create_entity_object(
     
     obj.empty_display_type = 'PLAIN_AXES'
     obj.empty_display_size = (1.0 / global_matrix.to_scale()[0]) * 0.5
-    obj.show_name = True
+    # obj.show_name = True
     
     obj.matrix_world = (
         global_matrix @
@@ -238,7 +238,8 @@ def create_entity_object(
     )
     
     for key, value in entity.items():
-        obj[key] = value
+        if key != "origin":
+            obj[key] = value
     
     collection.objects.link(obj)
     
@@ -259,7 +260,7 @@ def create_light(context, collection, entity, global_matrix):
     light.energy = float(light_val)
     
     obj = bpy.data.objects.new(obj_name, light)
-    obj.show_name = True
+    # obj.show_name = True
     
     obj.matrix_world = (
         global_matrix @
@@ -273,7 +274,8 @@ def create_light(context, collection, entity, global_matrix):
     
     # Copy raw BSP key-values to custom properties for exporter compatibility
     for key, value in entity.items():
-        obj[key] = value
+        if key != "origin":
+            obj[key] = value
     
     collection.objects.link(obj)
     
@@ -997,7 +999,7 @@ def import_bsp(
                 trigger_mat = bpy.data.materials.new("trigger")
                 trigger_mat.use_nodes = True
                 trigger_mat.blend_method = 'BLEND'
-                trigger_mat.shadow_method = 'NONE'
+                # trigger_mat.shadow_method = 'NONE' # removed in newer Blender
                 trigger_mat.diffuse_color = (1.0, 0.5, 0.0, 0.3)
                 bsdf = trigger_mat.node_tree.nodes.get("Principled BSDF")
                 
