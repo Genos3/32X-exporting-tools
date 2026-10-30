@@ -1,0 +1,1 @@
+void export_map_file(char *file_path);
