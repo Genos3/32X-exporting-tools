@@ -43,41 +43,13 @@
         }
         
         if (cfg.draw_polys && poly->is_visible) {
-            if (!poly->has_texture) { // no texture
-                #if ENABLE_Z_BUFFER
-                    draw_poly_zb(poly);
-                #else
-                    draw_poly(poly);
-                #endif
-            } else if (poly->face_type & SPRITE) { // sprite
-                #if ENABLE_Z_BUFFER
-                    draw_sprite_zb(poly);
-                #else
-                    draw_sprite(poly);
-                #endif
-            } else { // normal face
-                #if TX_PERSP_MODE == 1
-                    #if ENABLE_Z_BUFFER
-                        if (cfg.tx_perspective_mapping_enabled) {
-                            draw_poly_tx_ps_zb(poly);
-                        } else {
-                            draw_poly_tx_affine_zb(poly);
-                        }
-                    #else
-                        if (cfg.tx_perspective_mapping_enabled) {
-                            draw_poly_tx_sub_ps(poly);
-                        } else {
-                            draw_poly_tx_affine(poly);
-                        }
-                    #endif
-                #else
-                    #if ENABLE_Z_BUFFER
-                        draw_poly_tx_affine_zb(poly);
-                    #else
-                        draw_poly_tx_affine(poly);
-                    #endif
-                #endif
+            GLuint texture_id = 0;
+            
+            if (poly->has_texture) {
+              texture_id = textures->gl_texture_ids[tx_id * LIGHT_GRD + light];
             }
+            
+            gl_renderer_submit(poly, texture_id);
         }
         
         if (curr_selected_tile) {

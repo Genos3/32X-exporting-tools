@@ -2,18 +2,12 @@
 #include "common.h"
 
 static char *load_text_file(const char *path);
-static GLuint compile_shader(GLenum type, const char *path);
-static bool load_presenter(void);
 static void updateCursorPos(SDL_Window *window);
 static void processKeyDown(SDL_Keycode key, bool repeat);
 static void processKeyUp(SDL_Keycode key);
 
 static SDL_Window *window;
 static SDL_GLContext gl_context;
-static GLuint framebuffer_texture;
-static GLuint presenter_program;
-static GLuint presenter_vao;
-static u8 *framebuffer_rgb;
 
 static bool quit;
 static int windows_width, windows_height;
@@ -31,11 +25,11 @@ int main(int argc, char *argv[]) {
         SDL_Log("no arguments passed");
         return 1;
     }
-
+    
     file_path = argv[1];
     windows_width = PC_SCREEN_WIDTH * PC_SCREEN_SCALE_SIZE;
     windows_height = PC_SCREEN_HEIGHT * PC_SCREEN_SCALE_SIZE;
-
+    
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_TIMER)) {
         SDL_Log("SDL_Init: %s", SDL_GetError());
         return 1;
@@ -45,14 +39,14 @@ int main(int argc, char *argv[]) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-
+    
     window = SDL_CreateWindow("test", windows_width, windows_height, SDL_WINDOW_OPENGL);
     if (!window) {
         SDL_Log("SDL_CreateWindow: %s", SDL_GetError());
         SDL_Quit();
         return 1;
     }
-
+    
     gl_context = SDL_GL_CreateContext(window);
     if (!gl_context) {
         SDL_Log("SDL_GL_CreateContext: %s", SDL_GetError());
@@ -60,7 +54,7 @@ int main(int argc, char *argv[]) {
         SDL_Quit();
         return 1;
     }
-
+    
     if (!gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress)) {
         SDL_Log("Failed to load OpenGL functions");
         SDL_GL_DestroyContext(gl_context);
@@ -69,12 +63,8 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    if (!load_presenter()) {
-        SDL_GL_DestroyContext(gl_context);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
+    gl_renderer_init();
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     
     if (!init_menu()) {
         SDL_GL_DestroyContext(gl_context);
@@ -83,24 +73,12 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    glGenTextures(1, &framebuffer_texture);
-    glBindTexture(GL_TEXTURE_2D, framebuffer_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8,
-        PC_SCREEN_WIDTH, PC_SCREEN_HEIGHT, 0,
-        GL_RGB, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-    glGenVertexArrays(1, &presenter_vao);
-
-    framebuffer_rgb = malloc(PC_SCREEN_WIDTH * PC_SCREEN_HEIGHT * 3);
-
     SDL_GL_SetSwapInterval(1);
     SDL_SetWindowPosition(window, 500, 100);
-
+    
     init_memory();
     load_files(file_path);
-
+    
     view_lines_mode = 0;
     frame_cycles = 0;
     delta_time_f = 0;
@@ -119,45 +97,31 @@ int main(int argc, char *argv[]) {
     i_key_pressed = 0;
     i_modifier_key_pressed = 0;
     updateCursorPos(window);
-
+    
     init_3d();
     init_game();
-    draw();
-    if (cfg.debug) draw_dbg();
     
-    for (int i = 0; i < PC_SCREEN_WIDTH * PC_SCREEN_HEIGHT; i++) {
-        u16 pixel = screen[i];
-
-        framebuffer_rgb[i * 3]     = (pixel & 0x1F) * 255 / 31;
-        framebuffer_rgb[i * 3 + 1] = ((pixel >> 5) & 0x1F) * 255 / 31;
-        framebuffer_rgb[i * 3 + 2] = ((pixel >> 10) & 0x1F) * 255 / 31;
-    }
-
     glViewport(0, 0, windows_width, windows_height);
     glClear(GL_COLOR_BUFFER_BIT);
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, framebuffer_texture);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
-        PC_SCREEN_WIDTH, PC_SCREEN_HEIGHT,
-        GL_RGB, GL_UNSIGNED_BYTE, framebuffer_rgb);
-
-    glUseProgram(presenter_program);
-    glBindVertexArray(presenter_vao);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
-
+    
+    gl_renderer_begin();
+    draw();
+    if (cfg.debug) draw_dbg();
+    gl_renderer_flush();
+    
+    draw_menu(windows_width, windows_height);
     SDL_GL_SwapWindow(window);
-
+    
     const double update_time = 1000.0 / 60.0;
     double delta_time_t = update_time;
     const double performance_frequency = 1000.0 / (double)SDL_GetPerformanceFrequency();
     quit = false;
-
+    
     while (!quit) {
         key_prev = key_curr;
         Uint64 start_time = SDL_GetPerformanceCounter();
         SDL_Event event;
-
+        
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
                 case SDL_EVENT_QUIT:
@@ -193,64 +157,44 @@ int main(int argc, char *argv[]) {
                     break;
             }
         }
-
+        
         if (delta_time_t < update_time) delta_time_t = update_time;
         while (delta_time_t > 0) {
             float dt = min_c(delta_time_t, update_time);
             update_state(fix(dt / 1000));
             delta_time_t -= update_time;
         }
-
+        
         if (mouse_capture && mouse_moved) {
             mouse_moved = 0;
             i_cursor_dx = 0;
             i_cursor_dy = 0;
         }
-
+        
         if (redraw_scene) {
-            draw();
-            if (cfg.debug) draw_dbg();
-
-            for (int i = 0; i < PC_SCREEN_WIDTH * PC_SCREEN_HEIGHT; i++) {
-                u16 pixel = screen[i];
-
-                framebuffer_rgb[i * 3]     = (pixel & 0x1F) * 255 / 31;
-                framebuffer_rgb[i * 3 + 1] = ((pixel >> 5) & 0x1F) * 255 / 31;
-                framebuffer_rgb[i * 3 + 2] = ((pixel >> 10) & 0x1F) * 255 / 31;
-            }
-
             glViewport(0, 0, windows_width, windows_height);
             glClear(GL_COLOR_BUFFER_BIT);
 
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, framebuffer_texture);
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
-                PC_SCREEN_WIDTH, PC_SCREEN_HEIGHT,
-                GL_RGB, GL_UNSIGNED_BYTE, framebuffer_rgb);
+            gl_renderer_begin();
+            draw();
+            if (cfg.debug) draw_dbg();
+            gl_renderer_flush();
 
-            glUseProgram(presenter_program);
-            glBindVertexArray(presenter_vao);
-            glDrawArrays(GL_TRIANGLES, 0, 3);
-            
             draw_menu(windows_width, windows_height);
-
             SDL_GL_SwapWindow(window);
             redraw_scene = 0;
         }
-
+        
         delta_time_f = (SDL_GetPerformanceCounter() - start_time) * performance_frequency;
         delta_time_t = delta_time_f;
         fps = delta_time_f > 0 ? 1000.0 / delta_time_f : 60;
         if (fps > 60) fps = 60;
         if (delta_time_f < update_time - 1) SDL_Delay((Uint32)(update_time - delta_time_f - 1));
     }
-
+    
     free_memory();
     free(shared_face_dir);
-    free(framebuffer_rgb);
-    glDeleteTextures(1, &framebuffer_texture);
-    glDeleteProgram(presenter_program);
-    glDeleteVertexArrays(1, &presenter_vao);
+    gl_renderer_shutdown();
     shutdown_menu();
     SDL_GL_DestroyContext(gl_context);
     SDL_DestroyWindow(window);
@@ -261,38 +205,38 @@ int main(int argc, char *argv[]) {
 static char *load_text_file(const char *path) {
     FILE *file = fopen(path, "rb");
     if (!file) {
-        SDL_Log("Failed to open shader: %s", path);
+        SDL_Log("Failed to open file: %s", path);
         return NULL;
     }
-
+    
     fseek(file, 0, SEEK_END);
     long size = ftell(file);
     rewind(file);
-
+    
     char *source = malloc(size + 1);
     if (!source) {
         fclose(file);
         return NULL;
     }
-
+    
     size_t bytes_read = fread(source, 1, size, file);
     fclose(file);
     source[bytes_read] = '\0';
-
+    
     return source;
 }
 
-static GLuint compile_shader(GLenum type, const char *path) {
+GLuint compile_shader(GLenum type, const char *path) {
     char *source = load_text_file(path);
     if (!source) return 0;
-
+    
     GLuint shader = glCreateShader(type);
     const GLchar *shader_source = source;
     glShaderSource(shader, 1, &shader_source, NULL);
     free(source);
-
+    
     glCompileShader(shader);
-
+    
     GLint success;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
     if (!success) {
@@ -302,46 +246,8 @@ static GLuint compile_shader(GLenum type, const char *path) {
         glDeleteShader(shader);
         return 0;
     }
-
+    
     return shader;
-}
-
-static bool load_presenter(void) {
-    GLuint vertex_shader = compile_shader(
-        GL_VERTEX_SHADER, "shaders/present.vert");
-    GLuint fragment_shader = compile_shader(
-        GL_FRAGMENT_SHADER, "shaders/present.frag");
-
-    if (!vertex_shader || !fragment_shader) {
-        glDeleteShader(vertex_shader);
-        glDeleteShader(fragment_shader);
-        return false;
-    }
-
-    presenter_program = glCreateProgram();
-    glAttachShader(presenter_program, vertex_shader);
-    glAttachShader(presenter_program, fragment_shader);
-    glLinkProgram(presenter_program);
-
-    glDeleteShader(vertex_shader);
-    glDeleteShader(fragment_shader);
-
-    GLint success;
-    glGetProgramiv(presenter_program, GL_LINK_STATUS, &success);
-    if (!success) {
-        char log[1024];
-        glGetProgramInfoLog(presenter_program, sizeof(log), NULL, log);
-        SDL_Log("Presenter link failed: %s", log);
-        glDeleteProgram(presenter_program);
-        presenter_program = 0;
-        return false;
-    }
-
-    glUseProgram(presenter_program);
-    glUniform1i(glGetUniformLocation(presenter_program, "framebuffer"), 0);
-    glUseProgram(0);
-
-    return true;
 }
 
 static void processKeyDown(SDL_Keycode key, bool repeat) {
@@ -388,7 +294,7 @@ static void processKeyDown(SDL_Keycode key, bool repeat) {
             case SDLK_F2: enable_mouse_cursor ^= 1; updateCursorPos(window); break;
         }
     }
-
+    
     switch (key) {
         case SDLK_UP: i_cursor_key_pressed |= KEY_UP; break;
         case SDLK_DOWN: i_cursor_key_pressed |= KEY_DOWN; break;

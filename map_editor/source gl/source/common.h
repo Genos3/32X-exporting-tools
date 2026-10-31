@@ -55,3 +55,4 @@
 #include "engine/frustum_cl_grid.h"
 #include "engine/font.h"
 #include "engine/text.h"
+#include "engine/gl_renderer.h"

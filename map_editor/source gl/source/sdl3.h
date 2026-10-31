@@ -1,3 +1,5 @@
+GLuint compile_shader(GLenum type, const char *path);
+
 extern float delta_time_f;
 extern u8 i_cursor_key_pressed, i_key_pressed, i_modifier_key_pressed, mouse_moved, i_mouse_button_pressed, enable_mouse_cursor;
 extern u16 i_direction_pressed;
